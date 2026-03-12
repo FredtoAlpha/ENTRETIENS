@@ -480,12 +480,12 @@ function initGrilleEleve_(g, listes) {
 
   // Hauteurs de lignes
   var h = {
-    1:50, 2:8,  3:38, 4:30, 5:30, 6:30, 7:12,
-    8:32, 9:35, 10:35, 11:12, 12:35, 13:35, 14:12,
-    15:22, 16:22, 17:22, 18:22, 19:12,
-    20:32, 21:35, 22:8,  23:60, 24:12,
-    25:32, 26:8,  27:50, 28:50, 29:12,
-    30:32, 31:30, 32:30, 33:30
+    1:50,  2:8,   3:38,  4:30,  5:30,  6:30,  7:12,
+    8:32,  9:35,  10:35, 11:35, 12:12,
+    13:32, 14:35, 15:35, 16:12, 17:35, 18:35, 19:12,
+    20:22, 21:22, 22:22, 23:22, 24:12,
+    25:32, 26:35, 27:8,  28:60, 29:12,
+    30:32, 31:8,  32:50, 33:50
   };
   for (var r in h) g.setRowHeight(parseInt(r, 10), h[r]);
 
@@ -522,58 +522,62 @@ function initGrilleEleve_(g, listes) {
     .requireValueInRange(listes.getRange(2,3,Math.max(listes.getLastRow()-1,1),1), true)
     .setAllowInvalid(false).build();
 
-  // Section 1 — Engagement (lignes 8-18)
+  // Section 1 — Appreciation du professeur principal (lignes 8-11)
+  // B9 = cellule de saisie (fusionnee B9:B11)
   g.getRange("A8:B8").merge()
-    .setValue("1. ENGAGEMENT").setFontWeight("bold").setFontSize(11)
-    .setBackground("#5EAF54").setFontColor("white");
-  g.getRange("A9").setValue("Engagement 1 :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("A10").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("A12").setValue("Engagement 2 (optionnel) :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
-  g.getRange("A13").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
-  g.getRange("A12:B13").setBackground("#F5F5F5");
-  g.getRange("B9").setDataValidation(engRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("B10").setDataValidation(matRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("B12").setDataValidation(engRule).setValue(DASH).setBackground("#F5F5F5");
-  g.getRange("B13").setDataValidation(matRule).setValue(DASH).setBackground("#F5F5F5");
-  g.getRange("A15:A18").merge()
-    .setValue("ENGAGEMENT LIBRE ->\n(completer librement)")
-    .setFontWeight("bold").setFontSize(10).setBackground("#C5CAE9").setFontColor("#283593").setHorizontalAlignment("center");
-  g.getRange("B15:B18").merge().setBackground("#FFFFFF")
-    .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
-    .setVerticalAlignment("top").setHorizontalAlignment("left");
-
-  // Section 2 — Orientation (lignes 20-23)
-  g.getRange("A20:B20").merge()
-    .setValue("2. ORIENTATION 4e").setFontWeight("bold").setFontSize(11)
-    .setBackground("#7B1FA2").setFontColor("white");
-  g.getRange("A21").setValue("Orientation :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("B21").setDataValidation(oriRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("A23").setValue("Complement libre :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("B23").setBackground("#FFFFFF")
-    .setBorder(true,true,true,true,null,null,"#7B1FA2",SpreadsheetApp.BorderStyle.DASHED)
-    .setVerticalAlignment("top").setHorizontalAlignment("left");
-
-  // Section 3 — Vie scolaire (lignes 25-28)
-  g.getRange("A25:B25").merge()
-    .setValue("3. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11)
-    .setBackground("#3F67BC").setFontColor("white");
-  g.getRange("A27:A28").merge()
-    .setValue("Points a transmettre au professeur principal :")
-    .setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
-  g.getRange("B27:B28").merge().setBackground("#E8F5E9")
-    .setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED)
-    .setVerticalAlignment("top").setHorizontalAlignment("left");
-
-  // Section 4 — Appreciation du professeur principal (lignes 30-33)
-  g.getRange("A30:B30").merge()
-    .setValue("4. Appreciation du professeur principal").setFontWeight("bold").setFontSize(11)
+    .setValue("1. Appreciation du professeur principal").setFontWeight("bold").setFontSize(11)
     .setBackground("#E65100").setFontColor("white");
-  g.getRange("A31:A33").merge()
+  g.getRange("A9:A11").merge()
     .setValue("Appreciation du\nprofesseur principal :")
     .setFontWeight("bold").setFontSize(11).setBackground("#FFF3E0").setFontColor("#BF360C")
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
-  g.getRange("B31:B33").merge().setBackground("#FFFFFF")
+  g.getRange("B9:B11").merge().setBackground("#FFFFFF")
     .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
+    .setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  // Section 2 — Engagement (lignes 13-23)
+  // B14 = Eng1, B15 = Mat1, B17 = Eng2, B18 = Mat2, B20 = Eng libre (fusionnee B20:B23)
+  g.getRange("A13:B13").merge()
+    .setValue("2. ENGAGEMENT").setFontWeight("bold").setFontSize(11)
+    .setBackground("#5EAF54").setFontColor("white");
+  g.getRange("A14").setValue("Engagement 1 :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A15").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A17").setValue("Engagement 2 (optionnel) :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A18").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A17:B18").setBackground("#F5F5F5");
+  g.getRange("B14").setDataValidation(engRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("B15").setDataValidation(matRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("B17").setDataValidation(engRule).setValue(DASH).setBackground("#F5F5F5");
+  g.getRange("B18").setDataValidation(matRule).setValue(DASH).setBackground("#F5F5F5");
+  g.getRange("A20:A23").merge()
+    .setValue("ENGAGEMENT LIBRE ->\n(completer librement)")
+    .setFontWeight("bold").setFontSize(10).setBackground("#C5CAE9").setFontColor("#283593").setHorizontalAlignment("center");
+  g.getRange("B20:B23").merge().setBackground("#FFFFFF")
+    .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
+    .setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  // Section 3 — Orientation (lignes 25-28)
+  // B26 = Orientation, B28 = Complement libre (fusionnee B28)
+  g.getRange("A25:B25").merge()
+    .setValue("3. ORIENTATION 4e").setFontWeight("bold").setFontSize(11)
+    .setBackground("#7B1FA2").setFontColor("white");
+  g.getRange("A26").setValue("Orientation :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B26").setDataValidation(oriRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("A28").setValue("Complement libre :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B28").setBackground("#FFFFFF")
+    .setBorder(true,true,true,true,null,null,"#7B1FA2",SpreadsheetApp.BorderStyle.DASHED)
+    .setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  // Section 4 — Vie scolaire (lignes 30-33)
+  // B32 = Points PP (fusionnee B32:B33)
+  g.getRange("A30:B30").merge()
+    .setValue("4. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11)
+    .setBackground("#3F67BC").setFontColor("white");
+  g.getRange("A32:A33").merge()
+    .setValue("Points a transmettre au professeur principal :")
+    .setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
+  g.getRange("B32:B33").merge().setBackground("#E8F5E9")
+    .setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED)
     .setVerticalAlignment("top").setHorizontalAlignment("left");
 
   g.setFrozenRows(1);
@@ -613,15 +617,15 @@ function remplirSyntheses_(syn, juryId, built) {
       e.date,           // D — Date
       e.horaire,        // E — Horaire
       e.binome,         // F — Binome
-      "=" + q + "!B9",  // G — Engagement 1
-      "=" + q + "!B10", // H — Matiere 1
-      "=" + q + "!B12", // I — Engagement 2
-      "=" + q + "!B13", // J — Matiere 2
-      "=" + q + "!B15", // K — Engagement libre
-      "=" + q + "!B21", // L — Orientation
-      "=" + q + "!B23", // M — Complement orientation
-      "=" + q + "!B27", // N — Points PP
-      "=" + q + "!B31", // O — Appreciation PP (B31:B33 fusionnees)
+      "=" + q + "!B14", // G — Engagement 1     (sect. 2, ligne 14)
+      "=" + q + "!B15", // H — Matiere 1        (sect. 2, ligne 15)
+      "=" + q + "!B17", // I — Engagement 2     (sect. 2, ligne 17)
+      "=" + q + "!B18", // J — Matiere 2        (sect. 2, ligne 18)
+      "=" + q + "!B20", // K — Engagement libre (sect. 2, B20:B23 fusionnees)
+      "=" + q + "!B26", // L — Orientation      (sect. 3, ligne 26)
+      "=" + q + "!B28", // M — Complement ori.  (sect. 3, ligne 28)
+      "=" + q + "!B32", // N — Points PP        (sect. 4, B32:B33 fusionnees)
+      "=" + q + "!B9",  // O — Appreciation PP  (sect. 1, B9:B11 fusionnees)
       n                 // P — Onglet source
     ]);
   }

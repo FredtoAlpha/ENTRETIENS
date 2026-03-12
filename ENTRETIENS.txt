@@ -966,21 +966,22 @@ function synchroniserSecoursTerminal() {
 }
 
 function lireRowsSourceTerminal_(terminal, forceSecours) {
-  // Si forceSecours, on saute LIVE et on lit directement DATA_SECOURS
   if (forceSecours) return lireRowsSecours_(terminal);
 
-  // Lecture depuis _LIVE_GLOBAL (valeurs brutes, pas display)
-  var live = terminal.getSheetByName(CFG.LIVE);
-  if (live && live.getLastRow() >= 2) {
+  // Lecture directe depuis _TAMPON_1 (blocs fixes, pas de formule QUERY intermediaire).
+  // _LIVE_GLOBAL contient une formule QUERY asynchrone : getValues() dessus peut renvoyer
+  // vide si Sheets n'a pas encore recalcule. _TAMPON_1 lui est peuple par IMPORTRANGE
+  // et ses valeurs sont lisibles immediatement des que l'autorisation est donnee.
+  var tampon = terminal.getSheetByName(CFG.TAMPON);
+  if (tampon && tampon.getLastRow() >= 1) {
     try {
-      var liveVals = live.getRange(2, 1, live.getLastRow() - 1, CFG.SYNTH_COLS).getValues();
-      var liveRows = [];
-      for (var i = 0; i < liveVals.length; i++) {
-        var eleve = String(liveVals[i][CFG.I.ELEVE] || "").trim();
-        if (!eleve || eleve === DASH) continue;
-        liveRows.push(liveVals[i]);
+      var tVals = tampon.getRange(1, 1, tampon.getLastRow(), CFG.SYNTH_COLS).getValues();
+      var rows  = [];
+      for (var i = 0; i < tVals.length; i++) {
+        var eleve = String(tVals[i][CFG.I.ELEVE] || "").trim();
+        if (eleve && eleve !== DASH) rows.push(tVals[i]);
       }
-      if (liveRows.length) return liveRows;
+      if (rows.length) return rows;
     } catch (e) {}
   }
 

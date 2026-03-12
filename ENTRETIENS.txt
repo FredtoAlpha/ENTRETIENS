@@ -796,7 +796,7 @@ function mettreAJourTerminalLive_(terminal, classes) {
   try { live.hideSheet(); } catch (e2) {}
 
   // --- Onglets de classe + COPIER_COLLER_GLOBAL ---
-  preparerOngletsClasse_(terminal, classes);
+  preparerOngletsClasse_(terminal, classes, s);
   SpreadsheetApp.flush();
 
   // Publication initiale (peut etre vide si IMPORTRANGE pas encore autorise)
@@ -810,18 +810,22 @@ function construireFormuleLiveLocale_(s) {
          s + '"select * where Col2 is not null"' + s + '0)';
 }
 
-var TERMINAL_COLS = 8; // Eleve, Horaire, Binome, Appre PP, Points PP, Engagements, Orientation, Complement
-
-function preparerOngletsClasse_(terminal, classes) {
-  // En-tetes des onglets de classe (8 colonnes)
-  // Engagements = 1 seule colonne avec retour a la ligne (remplace ENG1/MAT1/ENG2/MAT2/ENG_LIBRE)
+function preparerOngletsClasse_(terminal, classes, s) {
+  // En-tetes des onglets de classe (12 colonnes).
+  // Les donnees sont alimentees par une formule QUERY sur _LIVE_GLOBAL :
+  // mise a jour automatique, aucun bouton a cliquer.
+  // Ordre : AppreciationPP en premier (apres les identifiants Eleve/Horaire/Binome).
   var headers = [
     "\u00c9l\u00e8ve", "Horaire", "Bin\u00f4me",
     "Appr\u00e9ciation PP", "Points PP",
-    "Engagements",
+    "Engagement 1", "Mati\u00e8re 1", "Engagement 2", "Mati\u00e8re 2", "Engagement libre",
     "Orientation", "Compl\u00e9ment orientation"
   ];
-  var widths = [220, 160, 200, 300, 260, 420, 190, 190];
+  var widths = [220, 160, 200, 300, 260, 280, 130, 280, 130, 260, 190, 190];
+  // Colonnes selectionnees depuis _LIVE_GLOBAL (0-base CFG.I → 1-base QUERY Col) :
+  // Col2=Eleve, Col5=Horaire, Col6=Binome, Col15=AppréciPP, Col14=PointsPP,
+  // Col7=Eng1, Col8=Mat1, Col9=Eng2, Col10=Mat2, Col11=EngLibre, Col12=Ori, Col13=ComplOri
+  var qSelect = "select Col2,Col5,Col6,Col15,Col14,Col7,Col8,Col9,Col10,Col11,Col12,Col13";
 
   for (var i = 0; i < classes.length; i++) {
     var cls = String(classes[i] || "").trim();
@@ -832,6 +836,14 @@ function preparerOngletsClasse_(terminal, classes) {
       .setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
     sh.setFrozenRows(1);
     for (var w = 0; w < widths.length; w++) sh.setColumnWidth(w + 1, widths[w]);
+    // Formule QUERY auto-rafraichissante : Sheets met a jour des que _LIVE_GLOBAL change.
+    // _LIVE_GLOBAL!A2:P contient les donnees (A2 = resultat du QUERY sur _TAMPON_1).
+    // IFERROR retourne vide si LIVE_GLOBAL est encore en cours de calcul.
+    var qWhere = " where Col3='" + cls + "' and Col2 is not null order by Col2";
+    sh.getRange("A2").clearContent();
+    sh.getRange("A2").setFormula(
+      '=IFERROR(QUERY(\'' + CFG.LIVE + '\'!A2:P' + s + '"' + qSelect + qWhere + '"' + s + '0),)'
+    );
     try { sh.showSheet(); } catch (e0) {}
   }
 
@@ -847,23 +859,21 @@ function preparerOngletsClasse_(terminal, classes) {
   try { g.showSheet(); } catch (e1) {}
 }
 
+// publierTerminalDepuisLive_ : n'ecrit QUE COPIER_COLLER_GLOBAL (syntheses formatees).
+// Les onglets de classe (4EME1, 4EME2...) ont des formules QUERY posees par
+// preparerOngletsClasse_ et se rafraichissent automatiquement — aucun bouton requis.
 function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
-  // Lecture des donnees brutes (getValues, pas getDisplayValues)
   var rows = lireRowsSourceTerminal_(terminal, forceSecours);
   if (!rows.length) return;
 
-  var buckets  = {};
   var copyRows = [];
-  var I = CFG.I; // raccourci vers les indices colonnes
+  var I = CFG.I;
 
   for (var i = 0; i < rows.length; i++) {
-    var r    = rows[i];
-    var cls  = nettoyerCellule_(r[I.CLASSE]);
+    var r     = rows[i];
+    var cls   = nettoyerCellule_(r[I.CLASSE]);
     var eleve = nettoyerCellule_(r[I.ELEVE]);
     if (!cls || !eleve) continue;
-
-    var horaire = nettoyerCellule_(r[I.HORAIRE]);
-    if (r[I.DATE]) horaire = (nettoyerCellule_(r[I.DATE]) + (horaire ? " " + horaire : "")).trim();
 
     var oriTxt   = nettoyerCellule_(r[I.ORI]);
     var complTxt = nettoyerCellule_(r[I.COMPL_ORI]);
@@ -874,38 +884,9 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
     var engSent  = construirePhrasEngagement_(r);
     var fullSent = construirePhraseComplete_(r, engSent, oriTxt, ppTxt, apprTxt);
 
-    var rawOri   = nettoyerCellule_(r[I.ORI]);
-    var rawCompl = nettoyerCellule_(r[I.COMPL_ORI]);
-    var rowOut = [
-      eleve, horaire, nettoyerCellule_(r[I.BINOME]),
-      apprTxt, ppTxt,
-      construireColonneEngagements_(r),  // col 6 : Engagements (retour a la ligne)
-      rawOri, rawCompl
-    ];
-
-    if (!buckets[cls]) buckets[cls] = [];
-    buckets[cls].push(rowOut);
     copyRows.push([cls, eleve, apprTxt, engSent, oriTxt, ppTxt, fullSent]);
   }
 
-  // Ecriture dans les onglets de classe
-  var classList = (classes && classes.length) ? classes.slice() : Object.keys(buckets).sort();
-  for (var c = 0; c < classList.length; c++) {
-    var clsName = String(classList[c] || "").trim();
-    if (!clsName) continue;
-    var sh    = getOrCreateSheet_(terminal, clsName);
-    var maxR  = Math.max(sh.getMaxRows() - 1, 1);
-    sh.getRange(2, 1, maxR, TERMINAL_COLS).clearContent();
-    var data = (buckets[clsName] || []).slice().sort(function(a, b) { return String(a[0]).localeCompare(String(b[0])); });
-    if (data.length) {
-      sh.getRange(2, 1, data.length, TERMINAL_COLS).setValues(data);
-      // Activer le retour a la ligne sur la colonne Engagements (col 6)
-      sh.getRange(2, 6, data.length, 1).setWrap(true);
-    }
-    try { sh.showSheet(); } catch (e0) {}
-  }
-
-  // Ecriture dans COPIER_COLLER_GLOBAL
   copyRows.sort(function(a, b) {
     return String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1]));
   });

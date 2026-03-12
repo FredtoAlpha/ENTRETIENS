@@ -796,7 +796,7 @@ function mettreAJourTerminalLive_(terminal, classes) {
   try { live.hideSheet(); } catch (e2) {}
 
   // --- Onglets de classe + COPIER_COLLER_GLOBAL ---
-  preparerOngletsClasse_(terminal, classes);
+  preparerOngletsClasse_(terminal, classes, s);
   SpreadsheetApp.flush();
 
   // Publication initiale (peut etre vide si IMPORTRANGE pas encore autorise)
@@ -806,22 +806,26 @@ function mettreAJourTerminalLive_(terminal, classes) {
 // QUERY local sur _TAMPON_1 — aucun IMPORTRANGE ici.
 // _TAMPON_1 est dans le meme classeur, la formule ne necessite aucune autorisation.
 function construireFormuleLiveLocale_(s) {
+  // Col3 = Classe, Col2 = Eleve : tri alphabetique par classe puis par eleve.
+  // Les FILTER des onglets de classe heritent de cet ordre — pas de SORT supplementaire.
   return '=QUERY(\'' + CFG.TAMPON + '\'!A:P' +
-         s + '"select * where Col2 is not null"' + s + '0)';
+         s + '"select * where Col2 is not null order by Col3,Col2"' + s + '0)';
 }
 
-var TERMINAL_COLS = 8; // Eleve, Horaire, Binome, Appre PP, Points PP, Engagements, Orientation, Complement
-
-function preparerOngletsClasse_(terminal, classes) {
-  // En-tetes des onglets de classe (8 colonnes)
-  // Engagements = 1 seule colonne avec retour a la ligne (remplace ENG1/MAT1/ENG2/MAT2/ENG_LIBRE)
+function preparerOngletsClasse_(terminal, classes, s) {
+  // 8 colonnes, mise a jour automatique par formules FILTER (pas de bouton).
+  // Col C : engagements fusionnes avec CHAR(10) via LET+FILTER (pret a copier-coller).
+  // Col D : engagement libre (le jury doit commencer par "L'eleve s'engage a...").
   var headers = [
-    "\u00c9l\u00e8ve", "Horaire", "Bin\u00f4me",
+    "\u00c9l\u00e8ve", "Bin\u00f4me",
+    "Engagements", "Engagement libre",
     "Appr\u00e9ciation PP", "Points PP",
-    "Engagements",
     "Orientation", "Compl\u00e9ment orientation"
   ];
-  var widths = [220, 160, 200, 300, 260, 420, 190, 190];
+  var widths = [200, 180, 380, 300, 300, 200, 180, 180];
+
+  // Nom de l'onglet source entre apostrophes pour les formules Sheets
+  var L = "'" + CFG.LIVE + "'";
 
   for (var i = 0; i < classes.length; i++) {
     var cls = String(classes[i] || "").trim();
@@ -832,6 +836,48 @@ function preparerOngletsClasse_(terminal, classes) {
       .setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
     sh.setFrozenRows(1);
     for (var w = 0; w < widths.length; w++) sh.setColumnWidth(w + 1, widths[w]);
+
+    // Condition de filtre commune (Classe = cls ET Eleve non vide)
+    // s = separateur locale (;  ou  ,)
+    var cond = s + L + '!C2:C="' + cls + '"' + s + L + '!B2:B<>""';
+
+    // Formules FILTER simples (1 colonne chacune, spill vertical automatique)
+    sh.getRange("A2").setFormula('=IFERROR(FILTER(' + L + '!B2:B' + cond + ')' + s + '"")');  // Eleve
+    sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');  // Binome
+    sh.getRange("D2").setFormula('=IFERROR(FILTER(' + L + '!K2:K' + cond + ')' + s + '"")');  // Eng libre
+    sh.getRange("E2").setFormula('=IFERROR(FILTER(' + L + '!O2:O' + cond + ')' + s + '"")');  // Appréci PP
+    sh.getRange("F2").setFormula('=IFERROR(FILTER(' + L + '!N2:N' + cond + ')' + s + '"")');  // Points PP
+    sh.getRange("G2").setFormula('=IFERROR(FILTER(' + L + '!L2:L' + cond + ')' + s + '"")');  // Orientation
+    sh.getRange("H2").setFormula('=IFERROR(FILTER(' + L + '!M2:M' + cond + ')' + s + '"")');  // Compl Ori
+
+    // Col C : engagements fusionnes avec retour a la ligne.
+    // LET evite de repeter le FILTER 4 fois (G=Eng1, H=Mat1, I=Eng2, J=Mat2).
+    // Resultat : "L'eleve s'engage a [Eng1] en [Mat1]" + CHAR(10) + "et a [Eng2] en [Mat2]"
+    // Note : les valeurs viennent du jury (saisie 1re personne) — la 3e personne est
+    // calculee dans COPIER_COLLER_GLOBAL (Apps Script).
+    sh.getRange("C2").setFormula(
+      '=IFERROR(LET(' +
+        'c1' + s + L + '!C2:C="' + cls + '"' + s +
+        'c2' + s + L + '!B2:B<>""' + s +
+        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'c1' + s + 'c2)' + s +
+        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'c1' + s + 'c2)' + s +
+        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'c1' + s + 'c2)' + s +
+        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'c1' + s + 'c2)' + s +
+        'IF(G<>""' + s +
+          '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&G' +
+          '&IF(H<>""' + s + '" en "&H' + s + '"")' +
+          '&IF(I<>""' + s + 'CHAR(10)&"et \u00e0 "&I' +
+            '&IF(J<>""' + s + '" en "&J' + s + '"")' +
+          s + '"")' +
+        s + '"")' +
+      ')' + s + '"")'
+    );
+
+    // Wrap sur les colonnes a texte long (spill entier couvert par 20 lignes)
+    sh.getRange(2, 3, 20, 1).setWrap(true); // Engagements
+    sh.getRange(2, 4, 20, 1).setWrap(true); // Engagement libre
+    sh.getRange(2, 5, 20, 1).setWrap(true); // Appreciation PP
+
     try { sh.showSheet(); } catch (e0) {}
   }
 
@@ -847,23 +893,21 @@ function preparerOngletsClasse_(terminal, classes) {
   try { g.showSheet(); } catch (e1) {}
 }
 
+// publierTerminalDepuisLive_ : n'ecrit QUE COPIER_COLLER_GLOBAL (syntheses formatees).
+// Les onglets de classe (4EME1, 4EME2...) ont des formules QUERY posees par
+// preparerOngletsClasse_ et se rafraichissent automatiquement — aucun bouton requis.
 function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
-  // Lecture des donnees brutes (getValues, pas getDisplayValues)
   var rows = lireRowsSourceTerminal_(terminal, forceSecours);
   if (!rows.length) return;
 
-  var buckets  = {};
   var copyRows = [];
-  var I = CFG.I; // raccourci vers les indices colonnes
+  var I = CFG.I;
 
   for (var i = 0; i < rows.length; i++) {
-    var r    = rows[i];
-    var cls  = nettoyerCellule_(r[I.CLASSE]);
+    var r     = rows[i];
+    var cls   = nettoyerCellule_(r[I.CLASSE]);
     var eleve = nettoyerCellule_(r[I.ELEVE]);
     if (!cls || !eleve) continue;
-
-    var horaire = nettoyerCellule_(r[I.HORAIRE]);
-    if (r[I.DATE]) horaire = (nettoyerCellule_(r[I.DATE]) + (horaire ? " " + horaire : "")).trim();
 
     var oriTxt   = nettoyerCellule_(r[I.ORI]);
     var complTxt = nettoyerCellule_(r[I.COMPL_ORI]);
@@ -874,38 +918,9 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
     var engSent  = construirePhrasEngagement_(r);
     var fullSent = construirePhraseComplete_(r, engSent, oriTxt, ppTxt, apprTxt);
 
-    var rawOri   = nettoyerCellule_(r[I.ORI]);
-    var rawCompl = nettoyerCellule_(r[I.COMPL_ORI]);
-    var rowOut = [
-      eleve, horaire, nettoyerCellule_(r[I.BINOME]),
-      apprTxt, ppTxt,
-      construireColonneEngagements_(r),  // col 6 : Engagements (retour a la ligne)
-      rawOri, rawCompl
-    ];
-
-    if (!buckets[cls]) buckets[cls] = [];
-    buckets[cls].push(rowOut);
     copyRows.push([cls, eleve, apprTxt, engSent, oriTxt, ppTxt, fullSent]);
   }
 
-  // Ecriture dans les onglets de classe
-  var classList = (classes && classes.length) ? classes.slice() : Object.keys(buckets).sort();
-  for (var c = 0; c < classList.length; c++) {
-    var clsName = String(classList[c] || "").trim();
-    if (!clsName) continue;
-    var sh    = getOrCreateSheet_(terminal, clsName);
-    var maxR  = Math.max(sh.getMaxRows() - 1, 1);
-    sh.getRange(2, 1, maxR, TERMINAL_COLS).clearContent();
-    var data = (buckets[clsName] || []).slice().sort(function(a, b) { return String(a[0]).localeCompare(String(b[0])); });
-    if (data.length) {
-      sh.getRange(2, 1, data.length, TERMINAL_COLS).setValues(data);
-      // Activer le retour a la ligne sur la colonne Engagements (col 6)
-      sh.getRange(2, 6, data.length, 1).setWrap(true);
-    }
-    try { sh.showSheet(); } catch (e0) {}
-  }
-
-  // Ecriture dans COPIER_COLLER_GLOBAL
   copyRows.sort(function(a, b) {
     return String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1]));
   });
@@ -966,21 +981,22 @@ function synchroniserSecoursTerminal() {
 }
 
 function lireRowsSourceTerminal_(terminal, forceSecours) {
-  // Si forceSecours, on saute LIVE et on lit directement DATA_SECOURS
   if (forceSecours) return lireRowsSecours_(terminal);
 
-  // Lecture depuis _LIVE_GLOBAL (valeurs brutes, pas display)
-  var live = terminal.getSheetByName(CFG.LIVE);
-  if (live && live.getLastRow() >= 2) {
+  // Lecture directe depuis _TAMPON_1 (blocs fixes, pas de formule QUERY intermediaire).
+  // _LIVE_GLOBAL contient une formule QUERY asynchrone : getValues() dessus peut renvoyer
+  // vide si Sheets n'a pas encore recalcule. _TAMPON_1 lui est peuple par IMPORTRANGE
+  // et ses valeurs sont lisibles immediatement des que l'autorisation est donnee.
+  var tampon = terminal.getSheetByName(CFG.TAMPON);
+  if (tampon && tampon.getLastRow() >= 1) {
     try {
-      var liveVals = live.getRange(2, 1, live.getLastRow() - 1, CFG.SYNTH_COLS).getValues();
-      var liveRows = [];
-      for (var i = 0; i < liveVals.length; i++) {
-        var eleve = String(liveVals[i][CFG.I.ELEVE] || "").trim();
-        if (!eleve || eleve === DASH) continue;
-        liveRows.push(liveVals[i]);
+      var tVals = tampon.getRange(1, 1, tampon.getLastRow(), CFG.SYNTH_COLS).getValues();
+      var rows  = [];
+      for (var i = 0; i < tVals.length; i++) {
+        var eleve = String(tVals[i][CFG.I.ELEVE] || "").trim();
+        if (eleve && eleve !== DASH) rows.push(tVals[i]);
       }
-      if (liveRows.length) return liveRows;
+      if (rows.length) return rows;
     } catch (e) {}
   }
 

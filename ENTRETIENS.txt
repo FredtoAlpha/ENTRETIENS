@@ -840,9 +840,9 @@ function preparerOngletsClasse_(terminal, classes, s) {
     // _LIVE_GLOBAL!A2:P contient les donnees (A2 = resultat du QUERY sur _TAMPON_1).
     // IFERROR retourne vide si LIVE_GLOBAL est encore en cours de calcul.
     var qWhere = " where Col3='" + cls + "' and Col2 is not null order by Col2";
-    sh.getRange("A2").clearContent();
+    // IFERROR : les deux arguments utilisent s (locale), pas une virgule codee en dur.
     sh.getRange("A2").setFormula(
-      '=IFERROR(QUERY(\'' + CFG.LIVE + '\'!A2:P' + s + '"' + qSelect + qWhere + '"' + s + '0),)'
+      '=IFERROR(QUERY(\'' + CFG.LIVE + '\'!A2:P' + s + '"' + qSelect + qWhere + '"' + s + '0)' + s + '"")'
     );
     try { sh.showSheet(); } catch (e0) {}
   }

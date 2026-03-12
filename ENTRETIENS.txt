@@ -35,9 +35,9 @@ var CFG = {
 // Schema SYNTHESES — defini une seule fois, utilise partout
 // Colonnes A-P (16 colonnes)
 CFG.SYNTH_HEADERS = [
-  "ID_Jury", "Eleve", "Classe", "Date", "Horaire", "Binome",
-  "Engagement 1", "Matiere 1", "Engagement 2", "Matiere 2", "Engagement libre",
-  "Orientation", "Complement orientation", "Points PP", "Appreciation PP",
+  "ID_Jury", "\u00c9l\u00e8ve", "Classe", "Date", "Horaire", "Bin\u00f4me",
+  "Engagement 1", "Mati\u00e8re 1", "Engagement 2", "Mati\u00e8re 2", "Engagement libre",
+  "Orientation", "Compl\u00e9ment orientation", "Points PP", "Appr\u00e9ciation PP",
   "Onglet source"
 ];
 CFG.SYNTH_COLS = CFG.SYNTH_HEADERS.length; // 16
@@ -51,6 +51,18 @@ CFG.I = {
   ONGLET:  15
 };
 
+// Adresses cellules dans la maquette élève (33 lignes) — source unique
+// Si initGrilleEleve_ change, mettre à jour ici ET là-bas.
+CFG.CELLS = {
+  ELEVE:     "B3",  CLASSE:    "B4",  HORAIRE:   "B5",  BINOME:    "B6",
+  APPRE_PP:  "B9",                                       // Sect.1 (B9:B11 fusionnées)
+  ENG1:      "B14", MAT1:      "B15",                    // Sect.2
+  ENG2:      "B17", MAT2:      "B18",                    // Sect.2 (optionnel, gris)
+  ENG_LIBRE: "B20",                                      // Sect.2 (B20:B23 fusionnées)
+  ORI:       "B26", COMPL_ORI: "B28",                    // Sect.3
+  POINTS_PP: "B32"                                       // Sect.4 (B32:B33 fusionnées)
+};
+
 // =============================================================================
 // BLOC 2 : ORCHESTRATION
 // =============================================================================
@@ -59,13 +71,13 @@ function onOpen() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch (e) { return; }
   ui.createMenu("Conseil 4e")
-    .addItem("Lancer workflow complet (creation neuve)", "lancerWorkflowComplet")
-    .addItem("Mettre a jour liens/jurys (sans recreation)", "mettreAJourLiensEtJurys")
+    .addItem("Lancer workflow complet (cr\u00e9ation neuve)", "lancerWorkflowComplet")
+    .addItem("Mettre \u00e0 jour liens/jurys (sans recr\u00e9ation)", "mettreAJourLiensEtJurys")
     .addSeparator()
     .addItem("Actualiser terminal prof", "actualiserTerminalProf")
     .addItem("Synchroniser DATA_SECOURS", "synchroniserSecoursTerminal")
     .addSeparator()
-    .addItem("Resume", "afficherResume")
+    .addItem("R\u00e9sum\u00e9", "afficherResume")
     .addItem("Ouvrir dossier", "ouvrirDossierBase")
     .addToUi();
 }
@@ -77,10 +89,22 @@ function executerWorkflow_(confirm, forceCreate) {
   var ui = SpreadsheetApp.getUi();
   if (typeof forceCreate === "undefined") forceCreate = true;
 
+  // Verrou : empêche les exécutions concurrentes (timeout 15 s)
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) {
+    ui.alert("Un autre workflow est d\u00e9j\u00e0 en cours. Veuillez patienter.");
+    return;
+  }
+
+  try { executerWorkflow_inner_(ui, confirm, forceCreate); }
+  finally { lock.releaseLock(); }
+}
+
+function executerWorkflow_inner_(ui, confirm, forceCreate) {
   if (confirm) {
     var ok = ui.alert(
       "Lancer le workflow complet ?",
-      "Creation neuve : nouveaux fichiers jury + terminal dans le dossier de depart.",
+      "Cr\u00e9ation neuve : nouveaux fichiers jury + terminal dans le dossier de d\u00e9part.",
       ui.ButtonSet.YES_NO
     );
     if (ok !== ui.Button.YES) return;
@@ -92,7 +116,7 @@ function executerWorkflow_(confirm, forceCreate) {
 
   // Etape 1 : parsing
   var parsed = parserDonnees_(src.getDataRange().getValues());
-  if (!parsed.rencontres.length) return ui.alert("Aucune rencontre detectee dans " + src.getName() + ".");
+  if (!parsed.rencontres.length) return ui.alert("Aucune rencontre d\u00e9tect\u00e9e dans " + src.getName() + ".");
 
   var groups  = groupByJury_(parsed.rencontres);
   var classes = getClasses_(parsed.rencontres);
@@ -111,11 +135,11 @@ function executerWorkflow_(confirm, forceCreate) {
   sauvegarderInfos_(master, folder, terminal, classes);
 
   ui.alert(
-    "Termine",
-    stats.created + " jury(s) cree(s), " + stats.updated + " jury(s) mis a jour." +
+    "Termin\u00e9",
+    stats.created + " jury(s) cr\u00e9\u00e9(s), " + stats.updated + " jury(s) mis \u00e0 jour." +
       "\nTerminal : " + terminal.getUrl() +
       "\n\nIMPORTANT : Ouvrez le terminal, onglet " + CFG.AUTH +
-      ", et cliquez \"Autoriser l'acces\" sur chaque ligne.",
+      ", et cliquez \"Autoriser l'acc\u00e8s\" sur chaque ligne.",
     ui.ButtonSet.OK
   );
 }
@@ -129,9 +153,9 @@ function actualiserTerminalProf() {
     var terminal = SpreadsheetApp.openById(terminalId);
     var classes  = parseClassesDepuisMaster_(master);
     publierTerminalDepuisLive_(terminal, classes);
-    ui.alert("Terminal actualise.");
+    ui.alert("Terminal actualis\u00e9.");
   } catch (e) {
-    ui.alert("Echec actualisation : " + e.message);
+    ui.alert("\u00c9chec actualisation : " + e.message);
   }
 }
 
@@ -225,7 +249,7 @@ function makeJuryId_(p1, p2) {
 function formaterDate_(v) {
   if (v instanceof Date) {
     var j  = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
-    var mo = ["janvier","fevrier","mars","avril","mai","juin","juillet","aout","septembre","octobre","novembre","decembre"];
+    var mo = ["janvier","f\u00e9vrier","mars","avril","mai","juin","juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"];
     return j[v.getDay()] + " " + v.getDate() + " " + mo[v.getMonth()];
   }
   return String(v || "").trim();
@@ -239,7 +263,7 @@ function creerPlanning_(ss, rencontres) {
   var old = ss.getSheetByName(CFG.PLANNING);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(CFG.PLANNING);
-  sh.getRange(1, 1, 1, 7).setValues([["Eleve","Classe","Date","Horaire","ID_Jury","Binome","Salle"]])
+  sh.getRange(1, 1, 1, 7).setValues([["\u00c9l\u00e8ve","Classe","Date","Horaire","ID_Jury","Bin\u00f4me","Salle"]])
     .setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
   sh.setFrozenRows(1);
   if (rencontres.length) {
@@ -268,7 +292,7 @@ function creerJurys_(ss, jurysMap, groups, preserveLinks) {
   var old = ss.getSheetByName(CFG.JURYS);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(CFG.JURYS);
-  var h = ["ID_Jury","Prof 1","Prof 2","Classes","Nb eleves","URL Fichier Jury","ID Fichier Jury","Email Prof 1","Email Prof 2"];
+  var h = ["ID_Jury","Prof 1","Prof 2","Classes","Nb \u00e9l\u00e8ves","URL Fichier Jury","ID Fichier Jury","Email Prof 1","Email Prof 2"];
   sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
   sh.setFrozenRows(1);
   var ids = Object.keys(jurysMap).sort(), out = [];
@@ -402,7 +426,7 @@ function configurerFichierJury_(ss, juryId, entries, masterUrl, terminalUrl, for
     ["URL_Master",masterUrl],
     ["URL_Terminal", terminalUrl],
     ["Maj",       new Date()],
-    ["Mode",      forceCreate ? "Creation neuve" : "Mise a jour"]
+    ["Mode",      forceCreate ? "Cr\u00e9ation neuve" : "Mise \u00e0 jour"]
   ]);
   cfg.getRange("A1:A5").setFontWeight("bold");
 
@@ -424,10 +448,10 @@ function configurerFichierJury_(ss, juryId, entries, masterUrl, terminalUrl, for
       initGrilleEleve_(sh, listes);
     }
     sh.getRange("A1").setNote("KEY|" + key);
-    sh.getRange("B3").setValue(e.eleve   || "");
-    sh.getRange("B4").setValue(e.classe  || "");
-    sh.getRange("B5").setValue((e.date   || "") + (e.horaire ? " " + e.horaire : ""));
-    sh.getRange("B6").setValue(juryId    || e.binome || "");
+    sh.getRange(CFG.CELLS.ELEVE).setValue(e.eleve   || "");
+    sh.getRange(CFG.CELLS.CLASSE).setValue(e.classe  || "");
+    sh.getRange(CFG.CELLS.HORAIRE).setValue((e.date || "") + (e.horaire ? " " + e.horaire : ""));
+    sh.getRange(CFG.CELLS.BINOME).setValue(juryId    || e.binome || "");
     built.push({ entry: e, sh: sh });
   }
 
@@ -438,12 +462,20 @@ function configurerFichierJury_(ss, juryId, entries, masterUrl, terminalUrl, for
 }
 
 function nettoyerSuperflus_(ss) {
+  // Supprime uniquement les onglets sans key valide ET dont le contenu est vide
+  // (protège les onglets ajoutés manuellement par le prof, ex. "Notes perso")
   var sheets = ss.getSheets();
   for (var i = sheets.length - 1; i >= 0; i--) {
     var sh = sheets[i];
     if (estOngletSysteme_(sh.getName())) continue;
     var key = lireKeyOnglet_(sh);
-    if (key.indexOf("|") === -1 && ss.getSheets().length > 1) ss.deleteSheet(sh);
+    if (key.indexOf("|") !== -1) continue; // onglet élève avec key valide → garder
+    // Pas de key : ne supprimer que si le contenu est vide (onglet résiduel)
+    var hasContent = false;
+    try { hasContent = sh.getLastRow() > 0 && sh.getDataRange().getValues().some(function(r) {
+      return r.some(function(c) { return String(c || "").trim() !== ""; });
+    }); } catch (e) {}
+    if (!hasContent && ss.getSheets().length > 1) ss.deleteSheet(sh);
   }
 }
 
@@ -478,40 +510,62 @@ function initGrilleEleve_(g, listes) {
   g.setColumnWidth(1, 280);
   g.setColumnWidth(2, 500);
 
-  // Hauteurs de lignes
-  var h = {
-    1:50,  2:8,   3:38,  4:30,  5:30,  6:30,  7:12,
-    8:32,  9:35,  10:35, 11:35, 12:12,
-    13:32, 14:35, 15:35, 16:12, 17:35, 18:35, 19:12,
-    20:22, 21:22, 22:22, 23:22, 24:12,
-    25:32, 26:35, 27:8,  28:60, 29:12,
-    30:32, 31:8,  32:50, 33:50
-  };
-  for (var r in h) g.setRowHeight(parseInt(r, 10), h[r]);
+  // Hauteurs de lignes — regroupées par plages consécutives de même hauteur
+  // pour réduire le nombre d'appels API (setRowHeights est un batch)
+  var heightRuns = [
+    [1,1,50],[2,1,8],[3,1,38],[4,3,30],[7,1,12],
+    [8,1,32],[9,3,35],[12,1,12],
+    [13,1,32],[14,2,35],[16,1,12],[17,2,35],[19,1,12],
+    [20,4,22],[24,1,12],
+    [25,1,32],[26,1,35],[27,1,8],[28,1,60],[29,1,12],
+    [30,1,32],[31,1,8],[32,2,50]
+  ];
+  for (var hr = 0; hr < heightRuns.length; hr++) {
+    g.setRowHeights(heightRuns[hr][0], heightRuns[hr][1], heightRuns[hr][2]);
+  }
 
+  // Contenu : écriture batch en un seul setValues pour toute la grille
+  var vals = new Array(33);
+  for (var vi = 0; vi < 33; vi++) vals[vi] = ["", ""];
+  vals[0]  = ["CONSEIL DE CLASSE - ENTRETIEN INDIVIDUEL", ""];
+  vals[2]  = ["\u00c9l\u00e8ve :", ""];              // Élève :
+  vals[3]  = ["Classe :", ""];
+  vals[4]  = ["Horaire :", ""];
+  vals[5]  = ["Bin\u00f4me :", ""];                   // Binôme :
+  vals[7]  = ["1. Appr\u00e9ciation du professeur principal", ""];
+  vals[8]  = ["Appr\u00e9ciation du\nprofesseur principal :", ""];
+  vals[12] = ["2. ENGAGEMENT", ""];
+  vals[13] = ["Engagement 1 :", DASH];
+  vals[14] = ["Mati\u00e8re cibl\u00e9e :", DASH];   // Matière ciblée :
+  vals[16] = ["Engagement 2 (optionnel) :", DASH];
+  vals[17] = ["Mati\u00e8re cibl\u00e9e :", DASH];   // Matière ciblée :
+  vals[19] = ["ENGAGEMENT LIBRE \u2192\n(compl\u00e9ter librement)", ""];
+  vals[24] = ["3. ORIENTATION 4e", ""];
+  vals[25] = ["Orientation :", DASH];
+  vals[27] = ["Compl\u00e9ment libre :", ""];          // Complément libre :
+  vals[29] = ["4. Vie scolaire et vie de classe", ""];
+  vals[31] = ["Points \u00e0 transmettre au professeur principal :", ""];
+  g.getRange(1, 1, 33, 2).setValues(vals);
+
+  // Formats globaux
   g.getRange("A1:B33")
     .setVerticalAlignment("middle")
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP)
     .setFontFamily("Arial").setFontSize(11);
 
-  // En-tete principal
+  // En-tête principal
   g.getRange("A1:B1").merge()
-    .setValue("CONSEIL DE CLASSE - ENTRETIEN INDIVIDUEL")
     .setFontFamily("Arial").setFontSize(14).setFontWeight("bold")
     .setBackground("#B71C1C").setFontColor("white").setHorizontalAlignment("center");
 
-  // Infos eleve (lignes 3-6)
-  g.getRange("A3").setValue("Eleve :");
-  g.getRange("A4").setValue("Classe :");
-  g.getRange("A5").setValue("Horaire :");
-  g.getRange("A6").setValue("Binome :");
+  // Infos élève (lignes 3-6)
   g.getRange("A3:A6").setFontWeight("bold").setHorizontalAlignment("center").setFontSize(12);
   g.getRange("B3:B6").setHorizontalAlignment("center").setFontSize(12);
   g.getRange("B3").setFontSize(14).setFontWeight("bold");
   g.getRange("A3:B6").setBackground("#F1D8CE")
     .setBorder(true,true,true,true,true,true,"#E0E0E0",SpreadsheetApp.BorderStyle.SOLID);
 
-  // Menus deroulants
+  // Menus déroulants
   var engRule = SpreadsheetApp.newDataValidation()
     .requireValueInRange(listes.getRange(2,1,Math.max(listes.getLastRow()-1,1),1), true)
     .setAllowInvalid(false).build();
@@ -522,13 +576,11 @@ function initGrilleEleve_(g, listes) {
     .requireValueInRange(listes.getRange(2,3,Math.max(listes.getLastRow()-1,1),1), true)
     .setAllowInvalid(false).build();
 
-  // Section 1 — Appreciation du professeur principal (lignes 8-11)
-  // B9 = cellule de saisie (fusionnee B9:B11)
+  // Section 1 — Appréciation du professeur principal (lignes 8-11)
   g.getRange("A8:B8").merge()
-    .setValue("1. Appreciation du professeur principal").setFontWeight("bold").setFontSize(11)
+    .setFontWeight("bold").setFontSize(11)
     .setBackground("#E65100").setFontColor("white");
   g.getRange("A9:A11").merge()
-    .setValue("Appreciation du\nprofesseur principal :")
     .setFontWeight("bold").setFontSize(11).setBackground("#FFF3E0").setFontColor("#BF360C")
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
   g.getRange("B9:B11").merge().setBackground("#FFFFFF")
@@ -536,45 +588,40 @@ function initGrilleEleve_(g, listes) {
     .setVerticalAlignment("top").setHorizontalAlignment("left");
 
   // Section 2 — Engagement (lignes 13-23)
-  // B14 = Eng1, B15 = Mat1, B17 = Eng2, B18 = Mat2, B20 = Eng libre (fusionnee B20:B23)
   g.getRange("A13:B13").merge()
-    .setValue("2. ENGAGEMENT").setFontWeight("bold").setFontSize(11)
+    .setFontWeight("bold").setFontSize(11)
     .setBackground("#5EAF54").setFontColor("white");
-  g.getRange("A14").setValue("Engagement 1 :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("A15").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("A17").setValue("Engagement 2 (optionnel) :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
-  g.getRange("A18").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A14").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A15").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A17").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A18").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
   g.getRange("A17:B18").setBackground("#F5F5F5");
-  g.getRange("B14").setDataValidation(engRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("B15").setDataValidation(matRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("B17").setDataValidation(engRule).setValue(DASH).setBackground("#F5F5F5");
-  g.getRange("B18").setDataValidation(matRule).setValue(DASH).setBackground("#F5F5F5");
+  g.getRange("B14").setDataValidation(engRule).setBackground("#FFFFFF");
+  g.getRange("B15").setDataValidation(matRule).setBackground("#FFFFFF");
+  g.getRange("B17").setDataValidation(engRule).setBackground("#F5F5F5");
+  g.getRange("B18").setDataValidation(matRule).setBackground("#F5F5F5");
   g.getRange("A20:A23").merge()
-    .setValue("ENGAGEMENT LIBRE ->\n(completer librement)")
     .setFontWeight("bold").setFontSize(10).setBackground("#C5CAE9").setFontColor("#283593").setHorizontalAlignment("center");
   g.getRange("B20:B23").merge().setBackground("#FFFFFF")
     .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
     .setVerticalAlignment("top").setHorizontalAlignment("left");
 
   // Section 3 — Orientation (lignes 25-28)
-  // B26 = Orientation, B28 = Complement libre (fusionnee B28)
   g.getRange("A25:B25").merge()
-    .setValue("3. ORIENTATION 4e").setFontWeight("bold").setFontSize(11)
+    .setFontWeight("bold").setFontSize(11)
     .setBackground("#7B1FA2").setFontColor("white");
-  g.getRange("A26").setValue("Orientation :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("B26").setDataValidation(oriRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("A28").setValue("Complement libre :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A26").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B26").setDataValidation(oriRule).setBackground("#FFFFFF");
+  g.getRange("A28").setFontWeight("bold").setHorizontalAlignment("center");
   g.getRange("B28").setBackground("#FFFFFF")
     .setBorder(true,true,true,true,null,null,"#7B1FA2",SpreadsheetApp.BorderStyle.DASHED)
     .setVerticalAlignment("top").setHorizontalAlignment("left");
 
   // Section 4 — Vie scolaire (lignes 30-33)
-  // B32 = Points PP (fusionnee B32:B33)
   g.getRange("A30:B30").merge()
-    .setValue("4. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11)
+    .setFontWeight("bold").setFontSize(11)
     .setBackground("#3F67BC").setFontColor("white");
   g.getRange("A32:A33").merge()
-    .setValue("Points a transmettre au professeur principal :")
     .setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
   g.getRange("B32:B33").merge().setBackground("#E8F5E9")
     .setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED)
@@ -586,7 +633,7 @@ function initGrilleEleve_(g, listes) {
 
 function remplirIndex_(indexSh, built) {
   indexSh.clear();
-  indexSh.getRange(1,1,1,6).setValues([["Onglet","Eleve","Classe","Date","Horaire","Binome"]])
+  indexSh.getRange(1,1,1,6).setValues([["Onglet","\u00c9l\u00e8ve","Classe","Date","Horaire","Bin\u00f4me"]])
     .setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
   indexSh.setFrozenRows(1);
   if (!built.length) return;
@@ -610,23 +657,25 @@ function remplirSyntheses_(syn, juryId, built) {
     var e = built[i].entry, n = built[i].sh.getName();
     var q = "'" + n.replace(/'/g, "''") + "'";
     // Ordre des colonnes conforme a CFG.SYNTH_HEADERS (16 colonnes)
+    // Refs cellules centralisées dans CFG.CELLS
+    var C = CFG.CELLS;
     out.push([
-      juryId,           // A — ID_Jury
-      e.eleve,          // B — Eleve
-      e.classe,         // C — Classe
-      e.date,           // D — Date
-      e.horaire,        // E — Horaire
-      e.binome,         // F — Binome
-      "=" + q + "!B14", // G — Engagement 1     (sect. 2, ligne 14)
-      "=" + q + "!B15", // H — Matiere 1        (sect. 2, ligne 15)
-      "=" + q + "!B17", // I — Engagement 2     (sect. 2, ligne 17)
-      "=" + q + "!B18", // J — Matiere 2        (sect. 2, ligne 18)
-      "=" + q + "!B20", // K — Engagement libre (sect. 2, B20:B23 fusionnees)
-      "=" + q + "!B26", // L — Orientation      (sect. 3, ligne 26)
-      "=" + q + "!B28", // M — Complement ori.  (sect. 3, ligne 28)
-      "=" + q + "!B32", // N — Points PP        (sect. 4, B32:B33 fusionnees)
-      "=" + q + "!B9",  // O — Appreciation PP  (sect. 1, B9:B11 fusionnees)
-      n                 // P — Onglet source
+      juryId,                     // A — ID_Jury
+      e.eleve,                    // B — Élève
+      e.classe,                   // C — Classe
+      e.date,                     // D — Date
+      e.horaire,                  // E — Horaire
+      e.binome,                   // F — Binôme
+      "=" + q + "!" + C.ENG1,    // G — Engagement 1
+      "=" + q + "!" + C.MAT1,    // H — Matière 1
+      "=" + q + "!" + C.ENG2,    // I — Engagement 2
+      "=" + q + "!" + C.MAT2,    // J — Matière 2
+      "=" + q + "!" + C.ENG_LIBRE, // K — Engagement libre
+      "=" + q + "!" + C.ORI,     // L — Orientation
+      "=" + q + "!" + C.COMPL_ORI, // M — Complément orientation
+      "=" + q + "!" + C.POINTS_PP, // N — Points PP
+      "=" + q + "!" + C.APPRE_PP,  // O — Appréciation PP
+      n                           // P — Onglet source
     ]);
   }
   syn.getRange(2, 1, out.length, CFG.SYNTH_COLS).setValues(out);
@@ -670,7 +719,7 @@ function getJurySourceIds_(master) {
 function mettreAJourTerminalLive_(terminal, classes) {
   var master = SpreadsheetApp.getActiveSpreadsheet();
   var ids    = getJurySourceIds_(master);
-  var s      = sep_(); // separateur d'arguments selon locale
+  var s      = sep_(terminal); // séparateur selon locale du TERMINAL (cible des setFormula)
 
   // --- Config (onglet cache) ---
   var cfg = getOrCreateSheet_(terminal, CFG.CONFIG);
@@ -689,7 +738,7 @@ function mettreAJourTerminalLive_(terminal, classes) {
   // "Autoriser l'acces" apparaisse directement dans la cellule.
   var auth = getOrCreateSheet_(terminal, CFG.AUTH);
   auth.clear();
-  auth.getRange(1, 1, 1, 3).setValues([["ID source","IMPORTRANGE de test","Etat"]])
+  auth.getRange(1, 1, 1, 3).setValues([["ID source","IMPORTRANGE de test","\u00c9tat"]])
     .setFontWeight("bold").setBackground("#ECEFF1");
   auth.setFrozenRows(1);
   auth.setColumnWidth(1, 380); auth.setColumnWidth(2, 240); auth.setColumnWidth(3, 140);
@@ -704,7 +753,7 @@ function mettreAJourTerminalLive_(terminal, classes) {
       );
       // Statut : verifie la valeur de B sans envelopper IMPORTRANGE
       auth.getRange(row, 3).setFormula(
-        "=IF(ISERROR(B" + row + ")" + s + "\"A autoriser\"" + s + "\"OK\")"
+        "=IF(ISERROR(B" + row + ")" + s + "\"\u00c0 autoriser\"" + s + "\"OK\")"
       );
     }
   }
@@ -725,7 +774,7 @@ function mettreAJourTerminalLive_(terminal, classes) {
     var formula = construireFormuleLive_(ids, s);
     live.getRange("A2").setFormula(formula);
   } else {
-    live.getRange("A2").setValue("Aucun jury source configure.");
+    live.getRange("A2").setValue("Aucun jury source configur\u00e9.");
   }
   try { live.hideSheet(); } catch (e2) {}
 
@@ -762,9 +811,9 @@ function construireFormuleLive_(ids, s) {
 function preparerOngletsClasse_(terminal, classes) {
   // En-tetes des onglets de classe (12 colonnes, conforme au schema SYNTHESES sans ID_Jury/Onglet)
   var headers = [
-    "Eleve", "Horaire", "Binome",
-    "Engagement 1", "Matiere 1", "Engagement 2", "Matiere 2", "Engagement libre",
-    "Orientation", "Complement orientation", "Points PP", "Appreciation PP"
+    "\u00c9l\u00e8ve", "Horaire", "Bin\u00f4me",
+    "Engagement 1", "Mati\u00e8re 1", "Engagement 2", "Mati\u00e8re 2", "Engagement libre",
+    "Orientation", "Compl\u00e9ment orientation", "Points PP", "Appr\u00e9ciation PP"
   ];
   var widths = [220, 160, 200, 280, 130, 280, 130, 260, 190, 190, 260, 260];
 
@@ -782,7 +831,7 @@ function preparerOngletsClasse_(terminal, classes) {
 
   // COPIER_COLLER_GLOBAL (7 colonnes)
   var g = getOrCreateSheet_(terminal, CFG.GLOBAL);
-  var gHeaders = ["Classe","Eleve","Synthese engagements","Orientation","Points PP","Appreciation PP","Synthese complete"];
+  var gHeaders = ["Classe","\u00c9l\u00e8ve","Synth\u00e8se engagements","Orientation","Points PP","Appr\u00e9ciation PP","Synth\u00e8se compl\u00e8te"];
   var gWidths  = [90, 220, 480, 240, 360, 360, 800];
   g.clear();
   g.getRange(1, 1, 1, gHeaders.length).setValues([gHeaders])
@@ -902,7 +951,7 @@ function synchroniserSecoursTerminal() {
   // Publication depuis le secours tout de suite
   try { publierTerminalDepuisLive_(terminal, parseClassesDepuisMaster_(master)); } catch (e4) {}
 
-  ui.alert(out.length + " ligne(s) copiees dans " + CFG.SECOURS + ".");
+  ui.alert(out.length + " ligne(s) copi\u00e9es dans " + CFG.SECOURS + ".");
 }
 
 function lireRowsSourceTerminal_(terminal) {
@@ -943,10 +992,12 @@ function lireRowsSourceTerminal_(terminal) {
 
 // --- Helpers locale (separateurs de formules) ---
 
-function sep_() {
-  // Separateur d'arguments de fonctions selon locale du tableur.
-  // setFormula() utilise la locale de la feuille de calcul.
-  var locale = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetLocale();
+function sep_(optSs) {
+  // Separateur d'arguments de fonctions selon locale du tableur CIBLE.
+  // setFormula() utilise la locale du spreadsheet sur lequel on écrit.
+  // Si optSs est fourni, on lit sa locale (important quand on écrit dans le terminal).
+  var ss = optSs || SpreadsheetApp.getActiveSpreadsheet();
+  var locale = ss.getSpreadsheetLocale();
   var commaLocales = ["en_US","en_GB","en_AU","en_CA","en_NZ","ja_JP","zh_CN","zh_TW","ko_KR"];
   for (var i = 0; i < commaLocales.length; i++) {
     if (locale.indexOf(commaLocales[i]) === 0) return ",";
@@ -978,22 +1029,27 @@ function formaterHoraire_(v) {
   return m ? m[1] + "H" + m[2] : t.toUpperCase();
 }
 
-// Transforme la formulation a la 1ere personne (telle que saisie dans la liste deroulante)
+// Transforme la formulation à la 1re personne (liste déroulante)
 // en 3e personne pour l'affichage dans le terminal.
-// Ex : "relire ma lecon" → "relire sa leçon"
-//      "m'auto-interroger" → "s'auto-interroger"
-//      "verifier que j'ai bien repondu" → "vérifier qu'il/elle a bien répondu"
+// Problème : \b en JavaScript est ASCII-only (\w = [a-zA-Z0-9_]).
+// Les caractères accentués (é, è, ê, à…) sont hors-\w, donc \b les traite
+// comme des frontières de mot → "même" serait cassé par \bme\b.
+// Solution : utiliser des lookbehind/lookahead qui excluent les lettres Unicode.
+// Compatibilité : V8 (Apps Script depuis 2020) supporte les lookbehind.
 function premierVersTrisiemepersonne_(txt) {
   if (!txt) return txt;
+  // Frontière "mot français" : ni lettre ASCII ni lettre accentuée avant/après
+  var B  = "(?<![a-z\u00e0-\u00ff])";  // lookbehind : pas de lettre avant
+  var Bf = "(?![a-z\u00e0-\u00ff])";    // lookahead  : pas de lettre après
   return txt
-    .replace(/\bm'/gi,        "s'")           // m'auto → s'auto
-    .replace(/\bme\b/gi,      "se")            // me relire → se relire
-    .replace(/\bma\b/gi,      "sa")            // ma leçon → sa leçon
-    .replace(/\bmon\b/gi,     "son")           // mon agenda → son agenda
-    .replace(/\bmes\b/gi,     "ses")           // mes devoirs → ses devoirs
-    .replace(/\bje suis\b/gi, "il/elle est")   // je suis perdu(e) → il/elle est perdu(e)
-    .replace(/\bj'ai\b/gi,    "il/elle a")     // j'ai bien répondu → il/elle a bien répondu
-    .replace(/\bje\b/gi,      "il/elle");      // je → il/elle
+    .replace(new RegExp(B + "m'"  + Bf, "gi"), "s'")
+    .replace(new RegExp(B + "me"  + Bf, "gi"), "se")
+    .replace(new RegExp(B + "ma"  + Bf, "gi"), "sa")
+    .replace(new RegExp(B + "mon" + Bf, "gi"), "son")
+    .replace(new RegExp(B + "mes" + Bf, "gi"), "ses")
+    .replace(new RegExp(B + "je suis" + Bf, "gi"), "il/elle est")
+    .replace(new RegExp(B + "j'ai"    + Bf, "gi"), "il/elle a")
+    .replace(new RegExp(B + "je"      + Bf, "gi"), "il/elle");
 }
 
 function formaterPieceEngagement_(engagement, matiere) {
@@ -1176,9 +1232,9 @@ function mapperOngletsExistants_(ss) {
 }
 
 function makeStudentSheetName_(eleve) {
-  var t = String(eleve || "Eleve").trim()
+  var t = String(eleve || "\u00c9l\u00e8ve").trim()
     .replace(/[\[\]\*\?\/\\:]/g, " ").replace(/\s+/g, " ").trim();
-  if (!t) t = "Eleve";
+  if (!t) t = "\u00c9l\u00e8ve";
   return t.length > 95 ? t.substring(0, 95) : t;
 }
 

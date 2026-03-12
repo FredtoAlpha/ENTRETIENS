@@ -29,6 +29,8 @@ var CFG = {
   // Noms fichiers
   TERMINAL_NAME:   "CC_Terminal_4EME",
   JURY_PREFIX:     "CC_JURY_",
+  TAMPON:          "_TAMPON_1",    // onglet tampon unique : blocs de BLOCK_SIZE lignes par jury
+  BLOCK_SIZE:      8,             // 7 eleves max par jury + 1 ligne vide separatrice
   FALLBACK_FOLDER: "4e_Conseil_de_Classe_26"
 };
 
@@ -733,37 +735,53 @@ function mettreAJourTerminalLive_(terminal, classes) {
   cfg.getRange("A1:A4").setFontWeight("bold");
   try { cfg.hideSheet(); } catch (e0) {}
 
-  // --- _AUTH_IMPORTRANGE (onglet VISIBLE — l'utilisateur doit pouvoir cliquer "Autoriser l'acces") ---
-  // IMPORTANT : formules IMPORTRANGE nues, sans IF ni IFERROR, pour que le bouton
-  // "Autoriser l'acces" apparaisse directement dans la cellule.
+  // --- _TAMPON_1 (onglet tampon unique, cache) ---
+  // Un seul onglet avec un bloc de CFG.BLOCK_SIZE lignes par jury.
+  // Jury N (0-base) → IMPORTRANGE posé en ligne (N * BLOCK_SIZE + 1).
+  // La plage SYNTHESES!A2:P8 = 7 lignes fixes → au plus 7 élèves par jury.
+  // L'IMPORTRANGE spille sur les 7 lignes du bloc; la ligne BLOCK_SIZE est vide (separatrice).
+  var tampon = getOrCreateSheet_(terminal, CFG.TAMPON);
+  tampon.clear();
+  for (var bi = 0; bi < ids.length; bi++) {
+    var startRow = bi * CFG.BLOCK_SIZE + 1;
+    tampon.getRange(startRow, 1).setFormula(
+      '=IMPORTRANGE("' + ids[bi] + '"' + s + '"' + CFG.SYNTHESES + '!A2:P' + (CFG.BLOCK_SIZE) + '")'
+    );
+  }
+  try { tampon.hideSheet(); } catch (eBuf) {}
+
+  // --- _AUTH_IMPORTRANGE (onglet VISIBLE — bouton Autoriser l'acces) ---
+  // IMPORTRANGE nu sur chaque ID source : le bouton "Autoriser" apparait dans la cellule B.
+  // Autorisation par source ID : valide aussi pour les formules du meme ID dans _TAMPON_1.
+  // Statut : reference directe a la cellule de debut du bloc dans _TAMPON_1 (pas d'INDIRECT).
   var auth = getOrCreateSheet_(terminal, CFG.AUTH);
   auth.clear();
-  auth.getRange(1, 1, 1, 3).setValues([["ID source","IMPORTRANGE de test","\u00c9tat"]])
-    .setFontWeight("bold").setBackground("#ECEFF1");
+  auth.getRange(1, 1, 1, 4).setValues([
+    ["Jury (ID source)", "IMPORTRANGE test — cliquer Autoriser si #REF!", "Ligne dans " + CFG.TAMPON, "\u00c9tat"]
+  ]).setFontWeight("bold").setBackground("#ECEFF1");
   auth.setFrozenRows(1);
-  auth.setColumnWidth(1, 380); auth.setColumnWidth(2, 240); auth.setColumnWidth(3, 140);
+  auth.setColumnWidth(1, 320); auth.setColumnWidth(2, 340);
+  auth.setColumnWidth(3, 170); auth.setColumnWidth(4, 120);
 
-  if (ids.length) {
-    auth.getRange(2, 1, ids.length, 1).setValues(ids.map(function(id) { return [id]; }));
-    for (var i = 0; i < ids.length; i++) {
-      var row = i + 2;
-      // Formule nue (pas de IF) : le #REF! affiche le bouton d'autorisation
-      auth.getRange(row, 2).setFormula(
-        "=IMPORTRANGE(A" + row + s + "\"" + CFG.SYNTHESES + "!A1\")"
-      );
-      // Statut : verifie la valeur de B sans envelopper IMPORTRANGE
-      auth.getRange(row, 3).setFormula(
-        "=IF(ISERROR(B" + row + ")" + s + "\"\u00c0 autoriser\"" + s + "\"OK\")"
-      );
-    }
+  for (var i = 0; i < ids.length; i++) {
+    var authRow  = i + 2;
+    var tampRow  = i * CFG.BLOCK_SIZE + 1;   // ligne de debut dans _TAMPON_1
+    var cellRef  = "'" + CFG.TAMPON + "'!A" + tampRow;  // ref directe, pas d'INDIRECT
+    auth.getRange(authRow, 1).setValue(ids[i]);
+    auth.getRange(authRow, 2).setFormula(
+      '=IMPORTRANGE("' + ids[i] + '"' + s + '"' + CFG.SYNTHESES + '!A1")'
+    );
+    auth.getRange(authRow, 3).setValue("ligne " + tampRow);
+    auth.getRange(authRow, 4).setFormula(
+      '=IF(ISERROR(' + cellRef + ')' + s + '"\u00c0 autoriser"' +
+      s + 'IF(ISBLANK(' + cellRef + ')' + s + '"(jury vide)"' + s + '"OK"))'
+    );
   }
-  // L'onglet AUTH reste VISIBLE pour que l'utilisateur puisse autoriser
   try { auth.showSheet(); terminal.setActiveSheet(auth); } catch (e1) {}
 
-  // --- _LIVE_GLOBAL (onglet cache — agregation via IMPORTRANGE) ---
-  // Pas de IFERROR autour des IMPORTRANGE individuels (evite le mismatch 1x1 vs NxM).
-  // Le QUERY englobe le tout ; s'il y a une erreur non autorisee, le terminal est vide
-  // jusqu'a ce que l'utilisateur autorise via _AUTH_IMPORTRANGE.
+  // --- _LIVE_GLOBAL (tampon 2, cache — QUERY local sur _TAMPON_1) ---
+  // Aucun IMPORTRANGE ici : simple QUERY sur le tampon local.
+  // Filtre les lignes vides (Col2 = Eleve non null).
   var live = getOrCreateSheet_(terminal, CFG.LIVE);
   live.clear();
   live.getRange(1, 1, 1, CFG.SYNTH_COLS).setValues([CFG.SYNTH_HEADERS])
@@ -771,8 +789,7 @@ function mettreAJourTerminalLive_(terminal, classes) {
   live.setFrozenRows(1);
 
   if (ids.length) {
-    var formula = construireFormuleLive_(ids, s);
-    live.getRange("A2").setFormula(formula);
+    live.getRange("A2").setFormula(construireFormuleLiveLocale_(s));
   } else {
     live.getRange("A2").setValue("Aucun jury source configur\u00e9.");
   }
@@ -786,37 +803,25 @@ function mettreAJourTerminalLive_(terminal, classes) {
   publierTerminalDepuisLive_(terminal, classes);
 }
 
-function construireFormuleLive_(ids, s) {
-  // Plage SYNTHESES A2:P (16 colonnes = CFG.SYNTH_COLS)
-  var range = '"' + CFG.SYNTHESES + CFG.SYNTH_RANGE + '"';
-
-  if (ids.length === 1) {
-    // Un seul jury : QUERY direct sur IMPORTRANGE
-    return '=QUERY(IMPORTRANGE("' + ids[0] + '"' + s + range + ')' +
-           s + '"select * where Col2 is not null"' + s + '0)';
-  }
-
-  // Plusieurs jurys : tableau vertical de IMPORTRANGE
-  // - Separateur de lignes dans {} = ";" (universel, independant de la locale)
-  // - Separateur d'arguments (s) = locale-dependent
-  // Les IMPORTRANGE ne sont PAS enveloppes dans IFERROR pour eviter le mismatch de dimensions
-  var parts = [];
-  for (var j = 0; j < ids.length; j++) {
-    parts.push('IMPORTRANGE("' + ids[j] + '"' + s + range + ')');
-  }
-  return '=QUERY({' + parts.join(';') + '}' +
+// QUERY local sur _TAMPON_1 — aucun IMPORTRANGE ici.
+// _TAMPON_1 est dans le meme classeur, la formule ne necessite aucune autorisation.
+function construireFormuleLiveLocale_(s) {
+  return '=QUERY(\'' + CFG.TAMPON + '\'!A:P' +
          s + '"select * where Col2 is not null"' + s + '0)';
 }
 
+var TERMINAL_COLS = 8; // Eleve, Horaire, Binome, Appre PP, Points PP, Engagements, Orientation, Complement
+
 function preparerOngletsClasse_(terminal, classes) {
-  // En-tetes des onglets de classe (12 colonnes, conforme au schema SYNTHESES sans ID_Jury/Onglet)
+  // En-tetes des onglets de classe (8 colonnes)
+  // Engagements = 1 seule colonne avec retour a la ligne (remplace ENG1/MAT1/ENG2/MAT2/ENG_LIBRE)
   var headers = [
     "\u00c9l\u00e8ve", "Horaire", "Bin\u00f4me",
     "Appr\u00e9ciation PP", "Points PP",
-    "Engagement 1", "Mati\u00e8re 1", "Engagement 2", "Mati\u00e8re 2", "Engagement libre",
+    "Engagements",
     "Orientation", "Compl\u00e9ment orientation"
   ];
-  var widths = [220, 160, 200, 300, 260, 280, 130, 280, 130, 260, 190, 190];
+  var widths = [220, 160, 200, 300, 260, 420, 190, 190];
 
   for (var i = 0; i < classes.length; i++) {
     var cls = String(classes[i] || "").trim();
@@ -869,13 +874,13 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
     var engSent  = construirePhrasEngagement_(r);
     var fullSent = construirePhraseComplete_(r, engSent, oriTxt, ppTxt, apprTxt);
 
+    var rawOri   = nettoyerCellule_(r[I.ORI]);
+    var rawCompl = nettoyerCellule_(r[I.COMPL_ORI]);
     var rowOut = [
       eleve, horaire, nettoyerCellule_(r[I.BINOME]),
       apprTxt, ppTxt,
-      nettoyerCellule_(r[I.ENG1]),  nettoyerCellule_(r[I.MAT1]),
-      nettoyerCellule_(r[I.ENG2]),  nettoyerCellule_(r[I.MAT2]),
-      nettoyerCellule_(r[I.ENG_LIBRE]),
-      oriTxt, complTxt
+      construireColonneEngagements_(r),  // col 6 : Engagements (retour a la ligne)
+      rawOri, rawCompl
     ];
 
     if (!buckets[cls]) buckets[cls] = [];
@@ -890,9 +895,13 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
     if (!clsName) continue;
     var sh    = getOrCreateSheet_(terminal, clsName);
     var maxR  = Math.max(sh.getMaxRows() - 1, 1);
-    sh.getRange(2, 1, maxR, 12).clearContent();
+    sh.getRange(2, 1, maxR, TERMINAL_COLS).clearContent();
     var data = (buckets[clsName] || []).slice().sort(function(a, b) { return String(a[0]).localeCompare(String(b[0])); });
-    if (data.length) sh.getRange(2, 1, data.length, 12).setValues(data);
+    if (data.length) {
+      sh.getRange(2, 1, data.length, TERMINAL_COLS).setValues(data);
+      // Activer le retour a la ligne sur la colonne Engagements (col 6)
+      sh.getRange(2, 6, data.length, 1).setWrap(true);
+    }
     try { sh.showSheet(); } catch (e0) {}
   }
 
@@ -1070,6 +1079,22 @@ function formaterPieceEngagement_(engagement, matiere) {
   // Transformation 1re → 3e personne sur la valeur du menu deroulant
   var eT = premierVersTrisiemepersonne_(e);
   return m ? (eT + " en " + m) : eT;
+}
+
+// Version multi-ligne pour la colonne "Engagements" du terminal.
+// Format : "L'élève s'engage à [p1]\net à [p2]" (retour a la ligne entre chaque engagement)
+// Utiliser avec setWrap(true) sur la cellule.
+function construireColonneEngagements_(row) {
+  var I  = CFG.I;
+  var p1    = formaterPieceEngagement_(row[I.ENG1], row[I.MAT1]);
+  var p2    = formaterPieceEngagement_(row[I.ENG2], row[I.MAT2]);
+  var libre = premierVersTrisiemepersonne_(nettoyerCellule_(row[I.ENG_LIBRE]));
+  if (!p1 && !p2 && !libre) return "";
+  var lines = [];
+  if (p1) lines.push("L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 " + terminerParPoint_(p1));
+  if (p2) lines.push("et \u00e0 " + terminerParPoint_(p2));
+  if (libre) lines.push(libre);
+  return lines.join("\n");
 }
 
 function construirePhrasEngagement_(row) {

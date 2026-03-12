@@ -373,17 +373,17 @@ function applyJuryTabVisibility_(ss, built) {
 
 function initEleveGrid_(g, listes) {
   g.getRange(1, 1, g.getMaxRows(), g.getMaxColumns()).breakApart();
-  ensureExactSheetSize_(g, 28, 2);
+  ensureExactSheetSize_(g, 33, 2);
   g.clear();
 
   // Largeur d'origine (petits PC: pas de scroll horizontal)
   g.setColumnWidth(1, 280);
   g.setColumnWidth(2, 500);
 
-  var h = {1:50,2:8,3:38,4:30,5:30,6:30,7:12,8:32,9:35,10:35,11:12,12:35,13:35,14:12,15:22,16:22,17:22,18:22,19:12,20:32,21:35,22:8,23:60,24:12,25:32,26:8,27:50,28:50};
+  var h = {1:50,2:8,3:38,4:30,5:30,6:30,7:12,8:32,9:35,10:35,11:12,12:35,13:35,14:12,15:22,16:22,17:22,18:22,19:12,20:32,21:35,22:8,23:60,24:12,25:32,26:8,27:50,28:50,29:12,30:32,31:22,32:22,33:22};
   for (var r in h) g.setRowHeight(parseInt(r, 10), h[r]);
 
-  g.getRange("A1:B28")
+  g.getRange("A1:B33")
     .setVerticalAlignment("middle")
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP)
     .setFontFamily("Arial")
@@ -432,6 +432,10 @@ function initEleveGrid_(g, listes) {
   g.getRange("A25:B25").merge().setValue("3. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11).setBackground("#3F67BC").setFontColor("white");
   g.getRange("A27:A28").merge().setValue("Points a transmettre au professeur principal :").setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
   g.getRange("B27:B28").merge().setBackground("#E8F5E9").setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED).setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  g.getRange("A30:B30").merge().setValue("4. Appreciation du professeur principal").setFontWeight("bold").setFontSize(11).setBackground("#E65100").setFontColor("white");
+  g.getRange("A31:A33").merge().setValue("Appreciation du\nprofesseur principal :").setFontWeight("bold").setFontSize(11).setBackground("#FFF3E0").setFontColor("#BF360C").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  g.getRange("B31:B33").merge().setBackground("#FFFFFF").setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED).setVerticalAlignment("top").setHorizontalAlignment("left");
 
   g.setFrozenRows(1);
   try { g.setHiddenGridlines(true); } catch (e) {}

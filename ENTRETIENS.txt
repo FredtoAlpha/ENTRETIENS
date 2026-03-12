@@ -806,26 +806,26 @@ function mettreAJourTerminalLive_(terminal, classes) {
 // QUERY local sur _TAMPON_1 — aucun IMPORTRANGE ici.
 // _TAMPON_1 est dans le meme classeur, la formule ne necessite aucune autorisation.
 function construireFormuleLiveLocale_(s) {
+  // Col3 = Classe, Col2 = Eleve : tri alphabetique par classe puis par eleve.
+  // Les FILTER des onglets de classe heritent de cet ordre — pas de SORT supplementaire.
   return '=QUERY(\'' + CFG.TAMPON + '\'!A:P' +
-         s + '"select * where Col2 is not null"' + s + '0)';
+         s + '"select * where Col2 is not null order by Col3,Col2"' + s + '0)';
 }
 
 function preparerOngletsClasse_(terminal, classes, s) {
-  // En-tetes des onglets de classe (12 colonnes).
-  // Les donnees sont alimentees par une formule QUERY sur _LIVE_GLOBAL :
-  // mise a jour automatique, aucun bouton a cliquer.
-  // Ordre : AppreciationPP en premier (apres les identifiants Eleve/Horaire/Binome).
+  // 8 colonnes, mise a jour automatique par formules FILTER (pas de bouton).
+  // Col C : engagements fusionnes avec CHAR(10) via LET+FILTER (pret a copier-coller).
+  // Col D : engagement libre (le jury doit commencer par "L'eleve s'engage a...").
   var headers = [
-    "\u00c9l\u00e8ve", "Horaire", "Bin\u00f4me",
+    "\u00c9l\u00e8ve", "Bin\u00f4me",
+    "Engagements", "Engagement libre",
     "Appr\u00e9ciation PP", "Points PP",
-    "Engagement 1", "Mati\u00e8re 1", "Engagement 2", "Mati\u00e8re 2", "Engagement libre",
     "Orientation", "Compl\u00e9ment orientation"
   ];
-  var widths = [220, 160, 200, 300, 260, 280, 130, 280, 130, 260, 190, 190];
-  // Colonnes selectionnees depuis _LIVE_GLOBAL (0-base CFG.I → 1-base QUERY Col) :
-  // Col2=Eleve, Col5=Horaire, Col6=Binome, Col15=AppréciPP, Col14=PointsPP,
-  // Col7=Eng1, Col8=Mat1, Col9=Eng2, Col10=Mat2, Col11=EngLibre, Col12=Ori, Col13=ComplOri
-  var qSelect = "select Col2,Col5,Col6,Col15,Col14,Col7,Col8,Col9,Col10,Col11,Col12,Col13";
+  var widths = [200, 180, 380, 300, 300, 200, 180, 180];
+
+  // Nom de l'onglet source entre apostrophes pour les formules Sheets
+  var L = "'" + CFG.LIVE + "'";
 
   for (var i = 0; i < classes.length; i++) {
     var cls = String(classes[i] || "").trim();
@@ -836,14 +836,48 @@ function preparerOngletsClasse_(terminal, classes, s) {
       .setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
     sh.setFrozenRows(1);
     for (var w = 0; w < widths.length; w++) sh.setColumnWidth(w + 1, widths[w]);
-    // Formule QUERY auto-rafraichissante : Sheets met a jour des que _LIVE_GLOBAL change.
-    // _LIVE_GLOBAL!A2:P contient les donnees (A2 = resultat du QUERY sur _TAMPON_1).
-    // IFERROR retourne vide si LIVE_GLOBAL est encore en cours de calcul.
-    var qWhere = " where Col3='" + cls + "' and Col2 is not null order by Col2";
-    // IFERROR : les deux arguments utilisent s (locale), pas une virgule codee en dur.
-    sh.getRange("A2").setFormula(
-      '=IFERROR(QUERY(\'' + CFG.LIVE + '\'!A2:P' + s + '"' + qSelect + qWhere + '"' + s + '0)' + s + '"")'
+
+    // Condition de filtre commune (Classe = cls ET Eleve non vide)
+    // s = separateur locale (;  ou  ,)
+    var cond = s + L + '!C2:C="' + cls + '"' + s + L + '!B2:B<>""';
+
+    // Formules FILTER simples (1 colonne chacune, spill vertical automatique)
+    sh.getRange("A2").setFormula('=IFERROR(FILTER(' + L + '!B2:B' + cond + ')' + s + '"")');  // Eleve
+    sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');  // Binome
+    sh.getRange("D2").setFormula('=IFERROR(FILTER(' + L + '!K2:K' + cond + ')' + s + '"")');  // Eng libre
+    sh.getRange("E2").setFormula('=IFERROR(FILTER(' + L + '!O2:O' + cond + ')' + s + '"")');  // Appréci PP
+    sh.getRange("F2").setFormula('=IFERROR(FILTER(' + L + '!N2:N' + cond + ')' + s + '"")');  // Points PP
+    sh.getRange("G2").setFormula('=IFERROR(FILTER(' + L + '!L2:L' + cond + ')' + s + '"")');  // Orientation
+    sh.getRange("H2").setFormula('=IFERROR(FILTER(' + L + '!M2:M' + cond + ')' + s + '"")');  // Compl Ori
+
+    // Col C : engagements fusionnes avec retour a la ligne.
+    // LET evite de repeter le FILTER 4 fois (G=Eng1, H=Mat1, I=Eng2, J=Mat2).
+    // Resultat : "L'eleve s'engage a [Eng1] en [Mat1]" + CHAR(10) + "et a [Eng2] en [Mat2]"
+    // Note : les valeurs viennent du jury (saisie 1re personne) — la 3e personne est
+    // calculee dans COPIER_COLLER_GLOBAL (Apps Script).
+    sh.getRange("C2").setFormula(
+      '=IFERROR(LET(' +
+        'c1' + s + L + '!C2:C="' + cls + '"' + s +
+        'c2' + s + L + '!B2:B<>""' + s +
+        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'c1' + s + 'c2)' + s +
+        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'c1' + s + 'c2)' + s +
+        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'c1' + s + 'c2)' + s +
+        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'c1' + s + 'c2)' + s +
+        'IF(G<>""' + s +
+          '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&G' +
+          '&IF(H<>""' + s + '" en "&H' + s + '"")' +
+          '&IF(I<>""' + s + 'CHAR(10)&"et \u00e0 "&I' +
+            '&IF(J<>""' + s + '" en "&J' + s + '"")' +
+          s + '"")' +
+        s + '"")' +
+      ')' + s + '"")'
     );
+
+    // Wrap sur les colonnes a texte long (spill entier couvert par 20 lignes)
+    sh.getRange(2, 3, 20, 1).setWrap(true); // Engagements
+    sh.getRange(2, 4, 20, 1).setWrap(true); // Engagement libre
+    sh.getRange(2, 5, 20, 1).setWrap(true); // Appreciation PP
+
     try { sh.showSheet(); } catch (e0) {}
   }
 

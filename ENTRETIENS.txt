@@ -480,12 +480,12 @@ function initGrilleEleve_(g, listes) {
 
   // Hauteurs de lignes
   var h = {
-    1:50, 2:8,  3:38, 4:30, 5:30, 6:30, 7:12,
-    8:32, 9:35, 10:35, 11:12, 12:35, 13:35, 14:12,
-    15:22, 16:22, 17:22, 18:22, 19:12,
-    20:32, 21:35, 22:8,  23:60, 24:12,
-    25:32, 26:8,  27:50, 28:50, 29:12,
-    30:32, 31:30, 32:30, 33:30
+    1:50,  2:8,   3:38,  4:30,  5:30,  6:30,  7:12,
+    8:32,  9:35,  10:35, 11:35, 12:12,
+    13:32, 14:35, 15:35, 16:12, 17:35, 18:35, 19:12,
+    20:22, 21:22, 22:22, 23:22, 24:12,
+    25:32, 26:35, 27:8,  28:60, 29:12,
+    30:32, 31:8,  32:50, 33:50
   };
   for (var r in h) g.setRowHeight(parseInt(r, 10), h[r]);
 
@@ -522,58 +522,62 @@ function initGrilleEleve_(g, listes) {
     .requireValueInRange(listes.getRange(2,3,Math.max(listes.getLastRow()-1,1),1), true)
     .setAllowInvalid(false).build();
 
-  // Section 1 — Engagement (lignes 8-18)
+  // Section 1 — Appreciation du professeur principal (lignes 8-11)
+  // B9 = cellule de saisie (fusionnee B9:B11)
   g.getRange("A8:B8").merge()
-    .setValue("1. ENGAGEMENT").setFontWeight("bold").setFontSize(11)
-    .setBackground("#5EAF54").setFontColor("white");
-  g.getRange("A9").setValue("Engagement 1 :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("A10").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("A12").setValue("Engagement 2 (optionnel) :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
-  g.getRange("A13").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
-  g.getRange("A12:B13").setBackground("#F5F5F5");
-  g.getRange("B9").setDataValidation(engRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("B10").setDataValidation(matRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("B12").setDataValidation(engRule).setValue(DASH).setBackground("#F5F5F5");
-  g.getRange("B13").setDataValidation(matRule).setValue(DASH).setBackground("#F5F5F5");
-  g.getRange("A15:A18").merge()
-    .setValue("ENGAGEMENT LIBRE ->\n(completer librement)")
-    .setFontWeight("bold").setFontSize(10).setBackground("#C5CAE9").setFontColor("#283593").setHorizontalAlignment("center");
-  g.getRange("B15:B18").merge().setBackground("#FFFFFF")
-    .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
-    .setVerticalAlignment("top").setHorizontalAlignment("left");
-
-  // Section 2 — Orientation (lignes 20-23)
-  g.getRange("A20:B20").merge()
-    .setValue("2. ORIENTATION 4e").setFontWeight("bold").setFontSize(11)
-    .setBackground("#7B1FA2").setFontColor("white");
-  g.getRange("A21").setValue("Orientation :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("B21").setDataValidation(oriRule).setValue(DASH).setBackground("#FFFFFF");
-  g.getRange("A23").setValue("Complement libre :").setFontWeight("bold").setHorizontalAlignment("center");
-  g.getRange("B23").setBackground("#FFFFFF")
-    .setBorder(true,true,true,true,null,null,"#7B1FA2",SpreadsheetApp.BorderStyle.DASHED)
-    .setVerticalAlignment("top").setHorizontalAlignment("left");
-
-  // Section 3 — Vie scolaire (lignes 25-28)
-  g.getRange("A25:B25").merge()
-    .setValue("3. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11)
-    .setBackground("#3F67BC").setFontColor("white");
-  g.getRange("A27:A28").merge()
-    .setValue("Points a transmettre au professeur principal :")
-    .setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
-  g.getRange("B27:B28").merge().setBackground("#E8F5E9")
-    .setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED)
-    .setVerticalAlignment("top").setHorizontalAlignment("left");
-
-  // Section 4 — Appreciation du professeur principal (lignes 30-33)
-  g.getRange("A30:B30").merge()
-    .setValue("4. Appreciation du professeur principal").setFontWeight("bold").setFontSize(11)
+    .setValue("1. Appreciation du professeur principal").setFontWeight("bold").setFontSize(11)
     .setBackground("#E65100").setFontColor("white");
-  g.getRange("A31:A33").merge()
+  g.getRange("A9:A11").merge()
     .setValue("Appreciation du\nprofesseur principal :")
     .setFontWeight("bold").setFontSize(11).setBackground("#FFF3E0").setFontColor("#BF360C")
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
-  g.getRange("B31:B33").merge().setBackground("#FFFFFF")
+  g.getRange("B9:B11").merge().setBackground("#FFFFFF")
     .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
+    .setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  // Section 2 — Engagement (lignes 13-23)
+  // B14 = Eng1, B15 = Mat1, B17 = Eng2, B18 = Mat2, B20 = Eng libre (fusionnee B20:B23)
+  g.getRange("A13:B13").merge()
+    .setValue("2. ENGAGEMENT").setFontWeight("bold").setFontSize(11)
+    .setBackground("#5EAF54").setFontColor("white");
+  g.getRange("A14").setValue("Engagement 1 :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A15").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A17").setValue("Engagement 2 (optionnel) :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A18").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A17:B18").setBackground("#F5F5F5");
+  g.getRange("B14").setDataValidation(engRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("B15").setDataValidation(matRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("B17").setDataValidation(engRule).setValue(DASH).setBackground("#F5F5F5");
+  g.getRange("B18").setDataValidation(matRule).setValue(DASH).setBackground("#F5F5F5");
+  g.getRange("A20:A23").merge()
+    .setValue("ENGAGEMENT LIBRE ->\n(completer librement)")
+    .setFontWeight("bold").setFontSize(10).setBackground("#C5CAE9").setFontColor("#283593").setHorizontalAlignment("center");
+  g.getRange("B20:B23").merge().setBackground("#FFFFFF")
+    .setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED)
+    .setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  // Section 3 — Orientation (lignes 25-28)
+  // B26 = Orientation, B28 = Complement libre (fusionnee B28)
+  g.getRange("A25:B25").merge()
+    .setValue("3. ORIENTATION 4e").setFontWeight("bold").setFontSize(11)
+    .setBackground("#7B1FA2").setFontColor("white");
+  g.getRange("A26").setValue("Orientation :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B26").setDataValidation(oriRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("A28").setValue("Complement libre :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B28").setBackground("#FFFFFF")
+    .setBorder(true,true,true,true,null,null,"#7B1FA2",SpreadsheetApp.BorderStyle.DASHED)
+    .setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  // Section 4 — Vie scolaire (lignes 30-33)
+  // B32 = Points PP (fusionnee B32:B33)
+  g.getRange("A30:B30").merge()
+    .setValue("4. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11)
+    .setBackground("#3F67BC").setFontColor("white");
+  g.getRange("A32:A33").merge()
+    .setValue("Points a transmettre au professeur principal :")
+    .setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
+  g.getRange("B32:B33").merge().setBackground("#E8F5E9")
+    .setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED)
     .setVerticalAlignment("top").setHorizontalAlignment("left");
 
   g.setFrozenRows(1);
@@ -613,15 +617,15 @@ function remplirSyntheses_(syn, juryId, built) {
       e.date,           // D — Date
       e.horaire,        // E — Horaire
       e.binome,         // F — Binome
-      "=" + q + "!B9",  // G — Engagement 1
-      "=" + q + "!B10", // H — Matiere 1
-      "=" + q + "!B12", // I — Engagement 2
-      "=" + q + "!B13", // J — Matiere 2
-      "=" + q + "!B15", // K — Engagement libre
-      "=" + q + "!B21", // L — Orientation
-      "=" + q + "!B23", // M — Complement orientation
-      "=" + q + "!B27", // N — Points PP
-      "=" + q + "!B31", // O — Appreciation PP (B31:B33 fusionnees)
+      "=" + q + "!B14", // G — Engagement 1     (sect. 2, ligne 14)
+      "=" + q + "!B15", // H — Matiere 1        (sect. 2, ligne 15)
+      "=" + q + "!B17", // I — Engagement 2     (sect. 2, ligne 17)
+      "=" + q + "!B18", // J — Matiere 2        (sect. 2, ligne 18)
+      "=" + q + "!B20", // K — Engagement libre (sect. 2, B20:B23 fusionnees)
+      "=" + q + "!B26", // L — Orientation      (sect. 3, ligne 26)
+      "=" + q + "!B28", // M — Complement ori.  (sect. 3, ligne 28)
+      "=" + q + "!B32", // N — Points PP        (sect. 4, B32:B33 fusionnees)
+      "=" + q + "!B9",  // O — Appreciation PP  (sect. 1, B9:B11 fusionnees)
       n                 // P — Onglet source
     ]);
   }
@@ -974,11 +978,31 @@ function formaterHoraire_(v) {
   return m ? m[1] + "H" + m[2] : t.toUpperCase();
 }
 
+// Transforme la formulation a la 1ere personne (telle que saisie dans la liste deroulante)
+// en 3e personne pour l'affichage dans le terminal.
+// Ex : "relire ma lecon" → "relire sa leçon"
+//      "m'auto-interroger" → "s'auto-interroger"
+//      "verifier que j'ai bien repondu" → "vérifier qu'il/elle a bien répondu"
+function premierVersTrisiemepersonne_(txt) {
+  if (!txt) return txt;
+  return txt
+    .replace(/\bm'/gi,        "s'")           // m'auto → s'auto
+    .replace(/\bme\b/gi,      "se")            // me relire → se relire
+    .replace(/\bma\b/gi,      "sa")            // ma leçon → sa leçon
+    .replace(/\bmon\b/gi,     "son")           // mon agenda → son agenda
+    .replace(/\bmes\b/gi,     "ses")           // mes devoirs → ses devoirs
+    .replace(/\bje suis\b/gi, "il/elle est")   // je suis perdu(e) → il/elle est perdu(e)
+    .replace(/\bj'ai\b/gi,    "il/elle a")     // j'ai bien répondu → il/elle a bien répondu
+    .replace(/\bje\b/gi,      "il/elle");      // je → il/elle
+}
+
 function formaterPieceEngagement_(engagement, matiere) {
   var e = nettoyerCellule_(engagement);
   var m = nettoyerCellule_(matiere);
   if (!e) return "";
-  return m ? (e + " en " + m) : e;
+  // Transformation 1re → 3e personne sur la valeur du menu deroulant
+  var eT = premierVersTrisiemepersonne_(e);
+  return m ? (eT + " en " + m) : eT;
 }
 
 function construirePhrasEngagement_(row) {
@@ -986,14 +1010,15 @@ function construirePhrasEngagement_(row) {
   var I = CFG.I;
   var p1    = formaterPieceEngagement_(row[I.ENG1], row[I.MAT1]);
   var p2    = formaterPieceEngagement_(row[I.ENG2], row[I.MAT2]);
-  var libre = nettoyerCellule_(row[I.ENG_LIBRE]);
+  // L'engagement libre est saisi librement — on applique aussi la transformation
+  var libre = premierVersTrisiemepersonne_(nettoyerCellule_(row[I.ENG_LIBRE]));
   if (p1)    parts.push(p1);
   if (p2)    parts.push(p2);
   if (libre) parts.push(libre);
   if (!parts.length) return "";
   var merged = parts[0];
-  for (var i = 1; i < parts.length; i++) merged += " et a " + parts[i];
-  return "L'eleve s'engage a " + terminerParPoint_(merged);
+  for (var i = 1; i < parts.length; i++) merged += " et \u00e0 " + parts[i];
+  return "L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 " + terminerParPoint_(merged);
 }
 
 function construirePhraseComplete_(row, engSent, oriTxt, ppTxt, apprTxt) {
@@ -1003,15 +1028,15 @@ function construirePhraseComplete_(row, engSent, oriTxt, ppTxt, apprTxt) {
   var date   = nettoyerCellule_(row[I.DATE]);
   var heure  = formaterHoraire_(row[I.HORAIRE]);
 
-  var prefix = eleve ? eleve : "Eleve";
+  var prefix = eleve ? eleve : "Élève";
   if (classe) prefix += " (" + classe + ")";
   if (date || heure) prefix += " - " + (date + (heure ? " " + heure : "")).trim();
 
   var parts = [];
   if (engSent) parts.push(engSent);
-  if (oriTxt)  parts.push("Orientation : "    + terminerParPoint_(oriTxt));
-  if (ppTxt)   parts.push("Points PP : "      + terminerParPoint_(ppTxt));
-  if (apprTxt) parts.push("Appreciation PP : "+ terminerParPoint_(apprTxt));
+  if (oriTxt)  parts.push("Orientation : "      + terminerParPoint_(oriTxt));
+  if (ppTxt)   parts.push("Points PP : "        + terminerParPoint_(ppTxt));
+  if (apprTxt) parts.push("Appréciation PP : "  + terminerParPoint_(apprTxt));
 
   return parts.length ? (prefix + " : " + parts.join(" ")) : (prefix + " :");
 }
@@ -1193,27 +1218,27 @@ function remplirListes_(li) {
   li.clear();
   var eng = [
     "Engagements", DASH,
-    "--- TRAVAIL A LA MAISON ---",
-    "relire ma lecon 10 min la veille du cours",
-    "apprendre ma lecon le soir meme",
-    "faire mes devoirs des le jour ou ils sont donnes",
+    "--- TRAVAIL À LA MAISON ---",
+    "relire ma leçon 10 min la veille du cours",
+    "apprendre ma leçon le soir même",
+    "faire mes devoirs dès le jour où ils sont donnés",
     "commencer mon travail sans attendre le dernier moment",
-    "refaire un exercice deja corrige",
+    "refaire un exercice déjà corrigé",
     "apprendre un peu chaque jour au lieu de tout faire d'un coup",
-    "laisser mon telephone dans une autre piece pendant mes devoirs",
-    "reciter les definitions importantes a voix haute",
+    "laisser mon téléphone dans une autre pièce pendant mes devoirs",
+    "réciter les définitions importantes à voix haute",
     "--- ORGANISATION ---",
-    "noter precisement tous mes devoirs dans mon agenda",
-    "verifier mon sac la veille au soir",
-    "avoir mon materiel complet a chaque cours",
-    "sortir mes affaires des mon arrivee en classe",
-    "ouvrir mon cahier des la sonnerie",
-    "ne plus oublier mon materiel (stylos, cahier, regle)",
+    "noter précisément tous mes devoirs dans mon agenda",
+    "vérifier mon sac la veille au soir",
+    "avoir mon matériel complet à chaque cours",
+    "sortir mes affaires dès mon arrivée en classe",
+    "ouvrir mon cahier dès la sonnerie",
+    "ne plus oublier mon matériel (stylos, cahier, règle)",
     "ranger mes feuilles volantes dans mon classeur chaque soir",
     "--- ATTENTION ET COMPORTEMENT ---",
-    "ecouter sans parler pendant les explications",
+    "écouter sans parler pendant les explications",
     "ne pas bavarder pendant la lecture des consignes",
-    "me remettre au travail des que le prof le demande",
+    "me remettre au travail dès que le prof le demande",
     "rester calme et assis(e) pendant toute l'heure",
     "ne pas distraire mes voisins de table",
     "respecter le silence pendant le travail individuel",
@@ -1221,47 +1246,47 @@ function remplirListes_(li) {
     "regarder le tableau ou le prof quand il parle",
     "--- PARTICIPATION EN CLASSE ---",
     "lever la main au moins une fois par cours",
-    "repondre a une question au moins une fois par semaine",
-    "proposer une reponse meme si je n'ai pas de certitude",
-    "lire a voix haute un texte ou une consigne",
+    "répondre à une question au moins une fois par semaine",
+    "proposer une réponse même si je n'ai pas de certitude",
+    "lire à voix haute un texte ou une consigne",
     "participer activement aux travaux de groupe",
-    "ecouter les reponses des autres sans les couper",
+    "écouter les réponses des autres sans les couper",
     "passer au tableau si on a besoin d'un volontaire",
-    "--- COMPREHENSION ET METHODE ---",
-    "poser une question des que je suis perdu(e)",
+    "--- COMPRÉHENSION ET MÉTHODE ---",
+    "poser une question dès que je suis perdu(e)",
     "demander une explication avant la fin de l'heure",
-    "relire la consigne deux fois avant de repondre",
-    "analyser mes erreurs apres un rendu de copie",
+    "relire la consigne deux fois avant de répondre",
+    "analyser mes erreurs après un rendu de copie",
     "essayer un exercice difficile au lieu de rendre page blanche",
-    "utiliser mon brouillon pour tester mes idees",
-    "verifier que j'ai bien repondu a toutes les questions",
-    "--- SOIN ET PRESENTATION ---",
-    "copier l'integralite du cours proprement",
-    "ecrire de facon lisible pour etre relu(e) facilement",
-    "dater chaque nouvelle seance",
-    "souligner les titres a la regle",
+    "utiliser mon brouillon pour tester mes idées",
+    "vérifier que j'ai bien répondu à toutes les questions",
+    "--- SOIN ET PRÉSENTATION ---",
+    "copier l'intégralité du cours proprement",
+    "écrire de façon lisible pour être relu(e) facilement",
+    "dater chaque nouvelle séance",
+    "souligner les titres à la règle",
     "ne pas faire de ratures et utiliser un effaceur ou du blanc",
     "me relire 2 minutes pour corriger les fautes d'orthographe",
-    "prendre soin de mon cahier (pas de coins cornes)",
-    "--- EVALUATIONS ET ABSENCES ---",
-    "preparer mes controles au moins 2 jours avant",
-    "m'auto-interroger sur le cours pour reviser",
-    "apprendre les mots-cles par coeur",
-    "corriger serieusement mes evaluations",
-    "rattraper le cours manque avant de revenir en classe",
-    "demander les documents distribues apres une absence",
-    "etre pret(e) a travailler des le debut de l'heure"
+    "prendre soin de mon cahier (pas de coins cornés)",
+    "--- ÉVALUATIONS ET ABSENCES ---",
+    "préparer mes contrôles au moins 2 jours avant",
+    "m'auto-interroger sur le cours pour réviser",
+    "apprendre les mots-clés par cœur",
+    "corriger sérieusement mes évaluations",
+    "rattraper le cours manqué avant de revenir en classe",
+    "demander les documents distribués après une absence",
+    "être prêt(e) à travailler dès le début de l'heure"
   ];
   var mat = [
-    "Matieres", DASH, "toutes les matieres", "mathematiques", "francais",
-    "histoire-geographie", "EMC", "anglais", "espagnol", "allemand",
+    "Matières", DASH, "toutes les matières", "mathématiques", "français",
+    "histoire-géographie", "EMC", "anglais", "espagnol", "allemand",
     "SVT", "physique-chimie", "technologie", "EPS",
-    "arts plastiques", "education musicale", "latin"
+    "arts plastiques", "éducation musicale", "latin"
   ];
   var ori = [
     "Orientation", DASH,
-    "Passage en 3e generale.",
-    "Demande de 3e Prepa-Metiers.",
+    "Passage en 3e générale.",
+    "Demande de 3e Prépa-Métiers.",
     "Demande de 3e en MFR (Maison Familiale Rurale).",
     "Demande de 3e Agricole.",
     "Demande de redoublement en 4e."

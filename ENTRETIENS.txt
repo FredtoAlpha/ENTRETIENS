@@ -541,7 +541,7 @@ function initGrilleEleve_(g, listes) {
   vals[14] = ["Mati\u00e8re cibl\u00e9e :", DASH];   // Matière ciblée :
   vals[16] = ["Engagement 2 (optionnel) :", DASH];
   vals[17] = ["Mati\u00e8re cibl\u00e9e :", DASH];   // Matière ciblée :
-  vals[19] = ["ENGAGEMENT LIBRE \u2192\n(compl\u00e9ter librement)", ""];
+  vals[19] = ["ENGAGEMENT LIBRE \u2192\nCommencer par :\n\u00abL'\u00e9l\u00e8ve s\u2019engage \u00e0\u2026\u00bb", ""];
   vals[24] = ["3. ORIENTATION 4e", ""];
   vals[25] = ["Orientation :", DASH];
   vals[27] = ["Compl\u00e9ment libre :", ""];          // Complément libre :
@@ -1348,16 +1348,16 @@ function remplirListes_(li) {
     "avoir mon matériel complet à chaque cours",
     "sortir mes affaires dès mon arrivée en classe",
     "ouvrir mon cahier dès la sonnerie",
-    "ne plus oublier mon matériel (stylos, cahier, règle)",
+    "apporter systématiquement mon matériel (stylos, cahier, règle)",
     "ranger mes feuilles volantes dans mon classeur chaque soir",
     "--- ATTENTION ET COMPORTEMENT ---",
     "écouter sans parler pendant les explications",
-    "ne pas bavarder pendant la lecture des consignes",
+    "rester silencieux(se) pendant la lecture des consignes",
     "me remettre au travail dès que le prof le demande",
     "rester calme et assis(e) pendant toute l'heure",
-    "ne pas distraire mes voisins de table",
+    "laisser mes voisins travailler sans les déranger",
     "respecter le silence pendant le travail individuel",
-    "ne pas manipuler d'objets inutiles (trousse, gadgets)",
+    "garder mon matériel rangé quand ce n'est pas utile",
     "regarder le tableau ou le prof quand il parle",
     "--- PARTICIPATION EN CLASSE ---",
     "lever la main au moins une fois par cours",
@@ -1380,7 +1380,7 @@ function remplirListes_(li) {
     "écrire de façon lisible pour être relu(e) facilement",
     "dater chaque nouvelle séance",
     "souligner les titres à la règle",
-    "ne pas faire de ratures et utiliser un effaceur ou du blanc",
+    "utiliser un effaceur ou du blanc pour corriger proprement",
     "me relire 2 minutes pour corriger les fautes d'orthographe",
     "prendre soin de mon cahier (pas de coins cornés)",
     "--- ÉVALUATIONS ET ABSENCES ---",

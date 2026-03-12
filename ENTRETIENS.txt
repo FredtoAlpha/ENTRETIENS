@@ -1,0 +1,1287 @@
+// Conseil de Classe 4e - Workflow auto (master -> jurys -> terminal live + secours)
+var DASH = "\u2014";
+var CFG = {
+  SOURCE: "Feuille 1",
+  PLANNING: "PLANNING_ELEVES",
+  JURYS: "JURYS",
+  INFOS: "_INFOS_",
+  LISTES: "LISTES",
+  INDEX: "INDEX",
+  SYNTHESES: "SYNTHESES",
+  CONFIG: "Config",
+  TERMINAL_NAME: "CC_Terminal_4EME",
+  JURY_PREFIX: "CC_JURY_",
+  FALLBACK_FOLDER: "4e_Conseil_de_Classe_26"
+};
+
+function onOpen() {
+  var ui;
+  try {
+    ui = SpreadsheetApp.getUi();
+  } catch (e) {
+    // Hors contexte UI (execution depuis l'editeur / trigger sans UI)
+    return;
+  }
+
+  ui.createMenu("Conseil 4e")
+    .addItem("Lancer workflow complet (creation neuve)", "lancerWorkflowComplet")
+    .addItem("Mettre a jour liens/jurys (sans recreation)", "mettreAJourLiensEtJurys")
+    .addItem("Reparer IMPORTRANGE terminal", "reparerImportrangeTerminal")
+    .addItem("Corriger #ERROR syntheses + terminal", "corrigerErreursSynthesesEtTerminal")
+    .addItem("Actualiser terminal prof (sans formules)", "actualiserTerminalProf")
+    .addItem("Synchroniser secours terminal", "synchroniserSecoursTerminal")
+    .addSeparator()
+    .addItem("Resume", "afficherResume")
+    .addItem("Ouvrir dossier", "ouvrirDossierBase")
+    .addToUi();
+}
+
+function lancerWorkflowComplet() { executerWorkflow_(true, true); }
+function mettreAJourLiensEtJurys() { executerWorkflow_(false, false); }
+
+function executerWorkflow_(confirm, forceCreate) {
+  var ui = SpreadsheetApp.getUi();
+  if (typeof forceCreate === "undefined") forceCreate = true;
+
+  if (confirm) {
+    var ok = ui.alert(
+      "Lancer le workflow complet ?",
+      "Mode creation neuve: le script cree de nouveaux fichiers jury + terminal dans le dossier de depart.",
+      ui.ButtonSet.YES_NO
+    );
+    if (ok !== ui.Button.YES) return;
+  }
+
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var src = master.getSheetByName(CFG.SOURCE) || master.getSheets()[0];
+  if (!src) return ui.alert("Onglet source introuvable.");
+
+  var parsed = parserDonnees_(src.getDataRange().getValues());
+  if (!parsed.rencontres.length) return ui.alert("Aucune rencontre detectee dans " + src.getName() + ".");
+
+  var groups = groupByJury_(parsed.rencontres);
+  var classes = getClasses_(parsed.rencontres);
+
+  createPlanning_(master, parsed.rencontres);
+  createJurys_(master, parsed.jurys, groups, !forceCreate);
+
+  var folder = getBaseFolder_();
+  var terminal = getOrCreateTerminal_(master, folder, forceCreate);
+  var stats = createOrUpdateJuryFiles_(master, folder, groups, terminal.getUrl(), forceCreate);
+
+  updateTerminalLive_(terminal, classes);
+  saveInfos_(master, folder, terminal, classes);
+
+  ui.alert(
+    "Termine",
+    stats.created + " jury(s) cree(s), " + stats.updated + " jury(s) mis a jour." +
+      "\nMode: " + (forceCreate ? "creation neuve" : "mise a jour") +
+      "\nTerminal: " + terminal.getUrl(),
+    ui.ButtonSet.OK
+  );
+}
+
+function parserDonnees_(data) {
+  var rencontres = [], jurys = {};
+  var currentClass = "", currentDate = "";
+  var profs1 = [], profs2 = [], salles = [];
+  var awaitingProf2 = false;
+  for (var r = 0; r < data.length; r++) {
+    var row = data[r], cells = [];
+    for (var c = 0; c < Math.max(row.length, 7); c++) {
+      var v = c < row.length ? row[c] : "";
+      cells.push(v === null || v === undefined ? "" : String(v).trim());
+    }
+    var rowJoin = cells.join(" ").toUpperCase();
+    if (rowJoin.match(/4\s*[EÈ]\s*[Mm]\s*[Ee]\s*\d/) && !rowJoin.match(/HEURE|SALLE|BIN|DATE|LISTE/)) {
+      for (var c2 = 0; c2 < cells.length; c2++) {
+        var m = cells[c2].match(/4\s*[EÈeè]\s*[Mm]\s*[Ee]\s*(\d)/i);
+        if (m) { currentClass = "4EME" + m[1]; break; }
+      }
+      awaitingProf2 = false;
+      continue;
+    }
+    if (cells[0].toUpperCase() === "DATE") {
+      currentDate = formatDate_(row[1]);
+      profs1 = [];
+      for (var c3 = 2; c3 <= 6 && c3 < cells.length; c3++) profs1.push(cells[c3]);
+      awaitingProf2 = true;
+      continue;
+    }
+    if (awaitingProf2) {
+      profs2 = [];
+      for (var c4 = 2; c4 <= 6 && c4 < cells.length; c4++) profs2.push(cells[c4]);
+      awaitingProf2 = false;
+      for (var b = 0; b < Math.min(profs1.length, profs2.length); b++) {
+        if (profs1[b] || profs2[b]) {
+          var jId = makeJuryId_(profs1[b], profs2[b]);
+          if (jId && !jurys[jId]) jurys[jId] = { prof1: profs1[b], prof2: profs2[b] };
+        }
+      }
+      continue;
+    }
+    var hasSalle = false;
+    for (var c5 = 2; c5 < cells.length; c5++) if (cells[c5].toLowerCase().indexOf("salle") >= 0) { hasSalle = true; break; }
+    if (hasSalle) {
+      salles = [];
+      for (var c6 = 2; c6 <= 6 && c6 < cells.length; c6++) salles.push(cells[c6]);
+      continue;
+    }
+    var timeMatch = cells[1].match(/^(\d{1,2})\s*[Hh]\s*(\d{2})$/);
+    if (timeMatch && currentClass) {
+      for (var b2 = 0; b2 < 5; b2++) {
+        var ci = b2 + 2;
+        if (ci >= cells.length) continue;
+        var eleve = cells[ci];
+        if (!eleve || eleve.match(/^\d{1,2}[Hh]\d{2}$/) || eleve.toUpperCase() === "LISTE D'ELEVES") continue;
+        var p1 = b2 < profs1.length ? profs1[b2] : "";
+        var p2 = b2 < profs2.length ? profs2[b2] : "";
+        var salle = b2 < salles.length ? salles[b2] : "";
+        rencontres.push([eleve, currentClass, currentDate, cells[1], makeJuryId_(p1, p2), p1 + " / " + p2, salle]);
+      }
+    }
+  }
+  return { rencontres: rencontres, jurys: jurys };
+}
+
+function makeJuryId_(p1, p2) {
+  p1 = String(p1 || "").trim().toUpperCase();
+  p2 = String(p2 || "").trim().toUpperCase();
+  if (!p1 && !p2) return "";
+  return [p1, p2].filter(function(x) { return x; }).sort().join("_");
+}
+
+function formatDate_(v) {
+  if (v instanceof Date) {
+    var j = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+    var mo = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+    return j[v.getDay()] + " " + v.getDate() + " " + mo[v.getMonth()];
+  }
+  return String(v || "").trim();
+}
+
+function createPlanning_(ss, rencontres) {
+  var old = ss.getSheetByName(CFG.PLANNING); if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(CFG.PLANNING);
+  sh.getRange(1, 1, 1, 7).setValues([["Eleve", "Classe", "Date", "Horaire", "ID_Jury", "Binome", "Salle"]])
+    .setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
+  sh.setFrozenRows(1);
+  if (rencontres.length) {
+    sh.getRange(2, 1, rencontres.length, 7).setValues(rencontres);
+    sh.getRange(2, 1, rencontres.length, 7).sort([{ column: 2, ascending: true }, { column: 4, ascending: true }, { column: 1, ascending: true }]);
+  }
+  sh.setColumnWidth(1, 280); sh.setColumnWidth(5, 240); sh.setColumnWidth(6, 240);
+}
+
+function readOldJurysMap_(ss) {
+  var out = {};
+  var sh = ss.getSheetByName(CFG.JURYS);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var v = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(9, sh.getLastColumn())).getValues();
+  for (var i = 0; i < v.length; i++) {
+    var id = String(v[i][0] || "").trim(); if (!id) continue;
+    out[id] = { url: v[i][5] || "", fileId: v[i][6] || "", email1: v[i][7] || "", email2: v[i][8] || "" };
+  }
+  return out;
+}
+
+function createJurys_(ss, jurysMap, groups, preserveLinks) {
+  if (typeof preserveLinks === "undefined") preserveLinks = false;
+  var prev = preserveLinks ? readOldJurysMap_(ss) : {};
+  var old = ss.getSheetByName(CFG.JURYS); if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(CFG.JURYS);
+  var h = ["ID_Jury", "Prof 1", "Prof 2", "Classes", "Nb eleves", "URL Fichier Jury", "ID Fichier Jury", "Email Prof 1", "Email Prof 2"];
+  sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
+  sh.setFrozenRows(1);
+  var ids = Object.keys(jurysMap).sort(), out = [];
+  for (var i = 0; i < ids.length; i++) {
+    var id = ids[i], grp = groups[id] || [], set = {};
+    for (var g = 0; g < grp.length; g++) set[grp[g].classe] = true;
+    var p = prev[id] || {};
+    out.push([id, jurysMap[id].prof1 || "", jurysMap[id].prof2 || "", Object.keys(set).sort().join(", "), grp.length, p.url || "", p.fileId || "", p.email1 || "", p.email2 || ""]);
+  }
+  if (out.length) sh.getRange(2, 1, out.length, h.length).setValues(out);
+  sh.setColumnWidth(1, 250); sh.setColumnWidth(6, 420); sh.setColumnWidth(7, 210);
+}
+
+function groupByJury_(rencontres) {
+  var out = {};
+  for (var i = 0; i < rencontres.length; i++) {
+    var r = rencontres[i], id = String(r[4] || "").trim();
+    if (!id) continue;
+    if (!out[id]) out[id] = [];
+    out[id].push({ eleve: r[0], classe: r[1], date: r[2], horaire: r[3], juryId: r[4], binome: r[5], salle: r[6] });
+  }
+  return out;
+}
+
+function getClasses_(rencontres) {
+  var seen = {}, out = [];
+  for (var i = 0; i < rencontres.length; i++) {
+    var c = String(rencontres[i][1] || "").trim();
+    if (!c || seen[c]) continue;
+    seen[c] = true; out.push(c);
+  }
+  out.sort(); return out;
+}
+
+function createOrUpdateJuryFiles_(master, folder, groups, terminalUrl, forceCreate) {
+  if (typeof forceCreate === "undefined") forceCreate = false;
+
+  var sh = master.getSheetByName(CFG.JURYS);
+  if (!sh || sh.getLastRow() < 2) return { created: 0, updated: 0 };
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues();
+  var created = 0, updated = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var juryId = String(rows[i][0] || "").trim();
+    if (!juryId) continue;
+
+    var fileId = forceCreate ? "" : (extractId_(rows[i][6]) || extractId_(rows[i][5]));
+    var ss = null;
+    var file = null;
+
+    if (fileId) {
+      try {
+        file = DriveApp.getFileById(fileId);
+        if (!file.isTrashed() && fileInFolder_(file, folder)) {
+          ss = SpreadsheetApp.openById(fileId);
+        }
+      } catch (e0) {
+        ss = null;
+      }
+    }
+
+    if (!ss) {
+      ss = SpreadsheetApp.create(CFG.JURY_PREFIX + juryId);
+      file = DriveApp.getFileById(ss.getId());
+      moveFileToFolder_(file, folder);
+      fileId = ss.getId();
+      created++;
+    } else {
+      updated++;
+      if (!file) file = DriveApp.getFileById(ss.getId());
+      moveFileToFolder_(file, folder);
+    }
+
+    var entries = (groups[juryId] || []).slice().sort(function(a, b) {
+      return String(a.classe).localeCompare(String(b.classe)) || String(a.date).localeCompare(String(b.date)) || String(a.horaire).localeCompare(String(b.horaire)) || String(a.eleve).localeCompare(String(b.eleve));
+    });
+
+    setupJuryFile_(ss, juryId, entries, master.getUrl(), terminalUrl, forceCreate);
+
+    var e1 = String(rows[i][7] || "").trim();
+    var e2 = String(rows[i][8] || "").trim();
+    if (e1) try { file.addEditor(e1); } catch (x1) {}
+    if (e2) try { file.addEditor(e2); } catch (x2) {}
+
+    sh.getRange(i + 2, 6).setValue(ss.getUrl());
+    sh.getRange(i + 2, 7).setValue(ss.getId());
+  }
+
+  return { created: created, updated: updated };
+}
+
+function setupJuryFile_(ss, juryId, entries, masterUrl, terminalUrl, forceCreate) {
+  if (typeof forceCreate === "undefined") forceCreate = false;
+
+  getOrCreateSheet_(ss, CFG.CONFIG);
+  getOrCreateSheet_(ss, CFG.LISTES);
+  getOrCreateSheet_(ss, CFG.INDEX);
+  getOrCreateSheet_(ss, CFG.SYNTHESES);
+
+  cleanupJuryFileScories_(ss);
+  if (forceCreate) deleteAllStudentSheets_(ss);
+
+  var cfg = getOrCreateSheet_(ss, CFG.CONFIG);
+  cfg.clear();
+  cfg.getRange("A1:B5").setValues([
+    ["ID_Jury", juryId],
+    ["URL_Master", masterUrl],
+    ["URL_Terminal", terminalUrl],
+    ["Maj", new Date()],
+    ["Mode", forceCreate ? "Creation neuve" : "Mise a jour"]
+  ]);
+  cfg.getRange("A1:A5").setFontWeight("bold");
+
+  var listes = getOrCreateSheet_(ss, CFG.LISTES);
+  fillListes_(listes);
+
+  var keyMap = mapExistingStudentSheets_(ss);
+  var built = [];
+
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var key = makeEntryKey_(e);
+    var sh = keyMap[key];
+    if (!sh) {
+      var name = uniqueSheetName_(ss, makeStudentSheetName_(e.eleve));
+      sh = ss.insertSheet(name);
+      initEleveGrid_(sh, listes);
+    }
+
+    sh.getRange("A1").setNote("KEY|" + key);
+    sh.getRange("B3").setValue(e.eleve || "");
+    sh.getRange("B4").setValue(e.classe || "");
+    sh.getRange("B5").setValue((e.date || "") + (e.horaire ? " " + e.horaire : ""));
+    sh.getRange("B6").setValue(juryId || e.binome || "");
+    built.push({ entry: e, sh: sh });
+  }
+
+  built.sort(function(a, b) { return a.sh.getName().localeCompare(b.sh.getName()); });
+  fillIndex_(getOrCreateSheet_(ss, CFG.INDEX), built);
+  fillSyntheses_(getOrCreateSheet_(ss, CFG.SYNTHESES), juryId, built);
+  applyJuryTabVisibility_(ss, built);
+}
+
+function cleanupJuryFileScories_(ss) {
+  var sheets = ss.getSheets();
+  for (var i = sheets.length - 1; i >= 0; i--) {
+    var sh = sheets[i];
+    var n = sh.getName();
+    if (isSystemSheetName_(n)) continue;
+
+    var key = readSheetKey_(sh);
+    var looksLikeGeneratedStudent = key.indexOf("|") > -1;
+    if (!looksLikeGeneratedStudent && ss.getSheets().length > 1) ss.deleteSheet(sh);
+  }
+}
+
+function deleteAllStudentSheets_(ss) {
+  var sheets = ss.getSheets();
+  for (var i = sheets.length - 1; i >= 0; i--) {
+    var n = sheets[i].getName();
+    if (!isSystemSheetName_(n) && ss.getSheets().length > 1) ss.deleteSheet(sheets[i]);
+  }
+}
+
+function applyJuryTabVisibility_(ss, built) {
+  if (built && built.length) {
+    try { ss.setActiveSheet(built[0].sh); } catch (e0) {}
+  }
+
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var sh = sheets[i];
+    var isSystem = isSystemSheetName_(sh.getName());
+    try {
+      if (isSystem) sh.hideSheet();
+      else sh.showSheet();
+    } catch (e1) {}
+  }
+}
+
+function initEleveGrid_(g, listes) {
+  g.getRange(1, 1, g.getMaxRows(), g.getMaxColumns()).breakApart();
+  ensureExactSheetSize_(g, 28, 2);
+  g.clear();
+
+  // Largeur d'origine (petits PC: pas de scroll horizontal)
+  g.setColumnWidth(1, 280);
+  g.setColumnWidth(2, 500);
+
+  var h = {1:50,2:8,3:38,4:30,5:30,6:30,7:12,8:32,9:35,10:35,11:12,12:35,13:35,14:12,15:22,16:22,17:22,18:22,19:12,20:32,21:35,22:8,23:60,24:12,25:32,26:8,27:50,28:50};
+  for (var r in h) g.setRowHeight(parseInt(r, 10), h[r]);
+
+  g.getRange("A1:B28")
+    .setVerticalAlignment("middle")
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP)
+    .setFontFamily("Arial")
+    .setFontSize(11);
+
+  g.getRange("A1:B1").merge()
+    .setValue("CONSEIL DE CLASSE - ENTRETIEN INDIVIDUEL")
+    .setFontFamily("Arial")
+    .setFontSize(14)
+    .setFontWeight("bold")
+    .setBackground("#B71C1C")
+    .setFontColor("white")
+    .setHorizontalAlignment("center");
+
+  g.getRange("A3").setValue("Eleve :"); g.getRange("A4").setValue("Classe :"); g.getRange("A5").setValue("Horaire :"); g.getRange("A6").setValue("Binome :");
+  g.getRange("A3:A6").setFontWeight("bold").setHorizontalAlignment("center").setFontSize(12);
+  g.getRange("B3:B6").setHorizontalAlignment("center").setFontSize(12);
+  g.getRange("B3").setFontSize(14).setFontWeight("bold");
+  g.getRange("A3:B6").setBackground("#F1D8CE").setBorder(true, true, true, true, true, true, "#E0E0E0", SpreadsheetApp.BorderStyle.SOLID);
+
+  g.getRange("A8:B8").merge().setValue("1. ENGAGEMENT").setFontWeight("bold").setFontSize(11).setBackground("#5EAF54").setFontColor("white");
+  g.getRange("A9").setValue("Engagement 1 :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A10").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("A12").setValue("Engagement 2 (optionnel) :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A13").setValue("Matiere ciblee :").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#757575");
+  g.getRange("A12:B13").setBackground("#F5F5F5");
+
+  var engRule = SpreadsheetApp.newDataValidation().requireValueInRange(listes.getRange(2,1,Math.max(listes.getLastRow()-1,1),1), true).setAllowInvalid(false).build();
+  var matRule = SpreadsheetApp.newDataValidation().requireValueInRange(listes.getRange(2,2,Math.max(listes.getLastRow()-1,1),1), true).setAllowInvalid(false).build();
+  var oriRule = SpreadsheetApp.newDataValidation().requireValueInRange(listes.getRange(2,3,Math.max(listes.getLastRow()-1,1),1), true).setAllowInvalid(false).build();
+
+  g.getRange("B9").setDataValidation(engRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("B10").setDataValidation(matRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("B12").setDataValidation(engRule).setValue(DASH).setBackground("#F5F5F5");
+  g.getRange("B13").setDataValidation(matRule).setValue(DASH).setBackground("#F5F5F5");
+
+  g.getRange("A15:A18").merge().setValue("ENGAGEMENT LIBRE ->\n(completer librement)").setFontWeight("bold").setFontSize(10).setBackground("#C5CAE9").setFontColor("#283593").setHorizontalAlignment("center");
+  g.getRange("B15:B18").merge().setBackground("#FFFFFF").setBorder(true,true,true,true,null,null,"#E65100",SpreadsheetApp.BorderStyle.DASHED).setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  g.getRange("A20:B20").merge().setValue("2. ORIENTATION 4e").setFontWeight("bold").setFontSize(11).setBackground("#7B1FA2").setFontColor("white");
+  g.getRange("A21").setValue("Orientation :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B21").setDataValidation(oriRule).setValue(DASH).setBackground("#FFFFFF");
+  g.getRange("A23").setValue("Complement libre :").setFontWeight("bold").setHorizontalAlignment("center");
+  g.getRange("B23").setBackground("#FFFFFF").setBorder(true,true,true,true,null,null,"#7B1FA2",SpreadsheetApp.BorderStyle.DASHED).setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  g.getRange("A25:B25").merge().setValue("3. Vie scolaire et vie de classe").setFontWeight("bold").setFontSize(11).setBackground("#3F67BC").setFontColor("white");
+  g.getRange("A27:A28").merge().setValue("Points a transmettre au professeur principal :").setFontWeight("bold").setFontSize(11).setBackground("#C8E6C9").setFontColor("#1B5E20").setHorizontalAlignment("center");
+  g.getRange("B27:B28").merge().setBackground("#E8F5E9").setBorder(true,true,true,true,null,null,"#1565C0",SpreadsheetApp.BorderStyle.DASHED).setVerticalAlignment("top").setHorizontalAlignment("left");
+
+  g.setFrozenRows(1);
+  try { g.setHiddenGridlines(true); } catch (e) {}
+}
+
+function fillIndex_(indexSh, built) {
+  indexSh.clear();
+  indexSh.getRange(1,1,1,6).setValues([["Onglet","Eleve","Classe","Date","Horaire","Binome"]]).setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
+  indexSh.setFrozenRows(1);
+  if (!built.length) return;
+  var out = [];
+  for (var i = 0; i < built.length; i++) {
+    var e = built[i].entry;
+    out.push([built[i].sh.getName(), e.eleve, e.classe, e.date, e.horaire, e.binome]);
+  }
+  indexSh.getRange(2,1,out.length,6).setValues(out);
+}
+
+function fillSyntheses_(syn, juryId, built) {
+  syn.clear();
+  var h = ["ID_Jury","Eleve","Classe","Date","Horaire","Binome","Engagement 1","Matiere 1","Engagement 2","Matiere 2","Engagement libre","Orientation","Complement orientation","Points PP","Onglet source"];
+  syn.getRange(1,1,1,h.length).setValues([h]).setFontWeight("bold").setBackground("#4CAF50").setFontColor("white");
+  syn.setFrozenRows(1);
+  if (!built.length) return;
+
+  var out = [];
+  for (var i = 0; i < built.length; i++) {
+    var e = built[i].entry, n = built[i].sh.getName(), q = "'" + n.replace(/'/g, "''") + "'";
+    out.push([
+      juryId, e.eleve, e.classe, e.date, e.horaire, e.binome,
+      "=" + q + "!B9",
+      "=" + q + "!B10",
+      "=" + q + "!B12",
+      "=" + q + "!B13",
+      "=" + q + "!B15",
+      "=" + q + "!B21",
+      "=" + q + "!B23",
+      "=" + q + "!B27",
+      n
+    ]);
+  }
+  syn.getRange(2,1,out.length,h.length).setValues(out);
+}
+
+function rewriteSynthesesLinks_(syn) {
+  if (!syn || syn.getLastRow() < 2) return false;
+  var n = syn.getLastRow() - 1;
+  var names = syn.getRange(2, 15, n, 1).getDisplayValues();
+  var out = [];
+
+  for (var i = 0; i < names.length; i++) {
+    var name = String(names[i][0] || "").trim();
+    if (!name) {
+      out.push(["", "", "", "", "", "", "", ""]);
+      continue;
+    }
+    var q = "'" + name.replace(/'/g, "''") + "'";
+    out.push([
+      "=" + q + "!B9",
+      "=" + q + "!B10",
+      "=" + q + "!B12",
+      "=" + q + "!B13",
+      "=" + q + "!B15",
+      "=" + q + "!B21",
+      "=" + q + "!B23",
+      "=" + q + "!B27"
+    ]);
+  }
+
+  syn.getRange(2, 7, n, 8).setValues(out);
+  return true;
+}
+
+function corrigerErreursSynthesesEtTerminal() {
+  var ui = SpreadsheetApp.getUi();
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var jurysSh = master.getSheetByName(CFG.JURYS);
+  if (!jurysSh || jurysSh.getLastRow() < 2) {
+    ui.alert("JURYS vide.");
+    return;
+  }
+
+  var rows = jurysSh.getRange(2, 1, jurysSh.getLastRow() - 1, 9).getValues();
+  var fixed = 0, skipped = 0, failed = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var fileId = extractId_(rows[i][6]) || extractId_(rows[i][5]);
+    if (!fileId) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      var jury = SpreadsheetApp.openById(fileId);
+      var syn = jury.getSheetByName(CFG.SYNTHESES);
+      if (rewriteSynthesesLinks_(syn)) fixed++;
+      else skipped++;
+    } catch (e) {
+      failed++;
+    }
+  }
+
+  try {
+    var terminalId = readInfo_(master, "TERMINAL_ID");
+    if (terminalId) {
+      var terminal = SpreadsheetApp.openById(terminalId);
+      updateTerminalLive_(terminal, parseClassesFromMaster_(master));
+    }
+  } catch (e2) {}
+
+  ui.alert("Correction terminee: " + fixed + " jury(s) corriges, " + skipped + " ignores, " + failed + " en erreur.");
+}
+function getOrCreateTerminal_(master, folder, forceCreate) {
+  if (typeof forceCreate === "undefined") forceCreate = false;
+
+  if (!forceCreate) {
+    var id = readInfo_(master, "TERMINAL_ID");
+    if (id && isReusableFile_(id, folder)) return SpreadsheetApp.openById(id);
+
+    var files = folder.getFilesByName(CFG.TERMINAL_NAME);
+    while (files.hasNext()) {
+      var f = files.next();
+      if (!f.isTrashed()) return SpreadsheetApp.openById(f.getId());
+    }
+  }
+
+  var name = forceCreate ? (CFG.TERMINAL_NAME + " " + buildRunSuffix_()) : CFG.TERMINAL_NAME;
+  var ss = SpreadsheetApp.create(name);
+  moveFileToFolder_(DriveApp.getFileById(ss.getId()), folder);
+  return ss;
+}
+
+function getJurySourceIds_(master) {
+  var jurys = master.getSheetByName(CFG.JURYS);
+  if (!jurys || jurys.getLastRow() < 2) return [];
+
+  var rows = jurys.getRange(2, 1, jurys.getLastRow() - 1, 9).getValues();
+  var ids = [];
+  for (var i = 0; i < rows.length; i++) {
+    var id = extractId_(rows[i][6]) || extractId_(rows[i][5]);
+    if (id) ids.push(id);
+  }
+  return dedupe_(ids);
+}
+
+function prepareImportrangeAuth_(terminal, ids) {
+  var sh = getOrCreateSheet_(terminal, "_AUTH_IMPORTRANGE");
+  sh.clear();
+  sh.getRange(1, 1, 1, 3).setValues([["ID source", "Test IMPORTRANGE", "Etat"]]).setFontWeight("bold").setBackground("#ECEFF1");
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(1, 360);
+  sh.setColumnWidth(2, 220);
+  sh.setColumnWidth(3, 140);
+
+  if (!ids.length) return sh;
+  sh.getRange(2, 1, ids.length, 1).setValues(ids.map(function(id) { return [id]; }));
+
+  for (var i = 0; i < ids.length; i++) {
+    var row = i + 2;
+    sh.getRange(row, 2).setFormula('=IF(A' + row + '="","",IMPORTRANGE(A' + row + ',"SYNTHESES!A1"))');
+    sh.getRange(row, 3).setFormula('=IF(A' + row + '="","",IF(ISERROR(B' + row + '),"A autoriser","OK"))');
+  }
+  return sh;
+}
+
+function updateTerminalLive_(terminal, classes) {
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var ids = getJurySourceIds_(master);
+
+  var cfg = getOrCreateSheet_(terminal, "Config");
+  cfg.clear();
+  cfg.getRange("A1:B5").setValues([
+    ["Master_URL", master.getUrl()],
+    ["Master_ID", master.getId()],
+    ["Nb_Jurys", ids.length],
+    ["Maj", new Date()],
+    ["Mode", "LIVE IMPORTRANGE"]
+  ]);
+  cfg.getRange("A1:A5").setFontWeight("bold");
+
+  var live = getOrCreateSheet_(terminal, "_LIVE_GLOBAL");
+  live.clear();
+  var h = ["ID_Jury","Eleve","Classe","Date","Horaire","Binome","Engagement 1","Matiere 1","Engagement 2","Matiere 2","Engagement libre","Orientation","Complement orientation","Points PP","Onglet source"];
+  live.getRange(1,1,1,h.length).setValues([h]).setFontWeight("bold").setBackground("#4CAF50").setFontColor("white");
+  live.setFrozenRows(1);
+
+  if (ids.length) {
+    var imports = [];
+    for (var j = 0; j < ids.length; j++) {
+      imports.push('IFERROR(IMPORTRANGE("' + ids[j] + '","' + CFG.SYNTHESES + '!A2:O"),"")');
+    }
+    live.getRange("A2").setFormula('=IFERROR(QUERY({' + imports.join(';') + '},"where Col2 is not null",0),"Aucune source IMPORTRANGE active. Lancez Reparer IMPORTRANGE terminal.")');
+  } else {
+    live.getRange("A2").setValue("Aucun jury source.");
+  }
+
+  prepareTerminalClassSheets_(terminal, classes);
+
+  try { cfg.hideSheet(); } catch (e0) {}
+  try { live.hideSheet(); } catch (e1) {}
+  var secours = terminal.getSheetByName("DATA_SECOURS");
+  if (secours) { try { secours.hideSheet(); } catch (e2) {} }
+
+  SpreadsheetApp.flush();
+  Utilities.sleep(2000);
+  publierTerminalDepuisLive_(terminal, classes);
+}
+
+function reparerImportrangeTerminal() {
+  var ui = SpreadsheetApp.getUi();
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var terminalId = readInfo_(master, "TERMINAL_ID");
+  if (!terminalId) return ui.alert("Terminal introuvable dans _INFOS_.");
+
+  try {
+    var terminal = SpreadsheetApp.openById(terminalId);
+    var ids = getJurySourceIds_(master);
+    var auth = prepareImportrangeAuth_(terminal, ids);
+    updateTerminalLive_(terminal, parseClassesFromMaster_(master));
+
+    try { auth.showSheet(); terminal.setActiveSheet(auth); } catch (e0) {}
+
+    ui.alert(
+      "Reparation IMPORTRANGE prete.",
+      "Ouvrez le terminal, onglet _AUTH_IMPORTRANGE, puis cliquez Autoriser l'acces sur les lignes en #REF.\n\nEnsuite relancez: Actualiser terminal prof.",
+      ui.ButtonSet.OK
+    );
+  } catch (e) {
+    ui.alert("Echec reparation IMPORTRANGE: " + e.message);
+  }
+}
+
+function actualiserTerminalProf() {
+  var ui = SpreadsheetApp.getUi();
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var terminalId = readInfo_(master, "TERMINAL_ID");
+  if (!terminalId) return ui.alert("Terminal introuvable dans _INFOS_.");
+
+  try {
+    var terminal = SpreadsheetApp.openById(terminalId);
+    publierTerminalDepuisLive_(terminal, parseClassesFromMaster_(master));
+    ui.alert("Terminal prof actualise (sans formules visibles).");
+  } catch (e) {
+    ui.alert("Echec actualisation terminal: " + e.message);
+  }
+}
+
+function prepareTerminalClassSheets_(terminal, classes) {
+  var headers = [
+    "Eleve",
+    "Classe",
+    "Horaire",
+    "Binome",
+    "Synthese engagements",
+    "Orientation",
+    "Points a transmettre au professeur principal",
+    "Synthese complete (copier-coller)"
+  ];
+
+  for (var i = 0; i < classes.length; i++) {
+    var cls = String(classes[i] || "").trim();
+    if (!cls) continue;
+    var sh = getOrCreateSheet_(terminal, cls);
+    ensureSheetColumns_(sh, 8);
+    sh.clear();
+    sh.getRange(1,1,1,headers.length).setValues([headers]).setFontWeight("bold").setBackground("#1565C0").setFontColor("white");
+    sh.setFrozenRows(1);
+    sh.setColumnWidth(1, 220);
+    sh.setColumnWidth(2, 90);
+    sh.setColumnWidth(3, 170);
+    sh.setColumnWidth(4, 230);
+    sh.setColumnWidth(5, 480);
+    sh.setColumnWidth(6, 280);
+    sh.setColumnWidth(7, 420);
+    sh.setColumnWidth(8, 760);
+  }
+
+  var g = getOrCreateSheet_(terminal, "COPIER_COLLER_GLOBAL");
+  ensureSheetColumns_(g, 6);
+  g.clear();
+  g.getRange(1,1,1,6).setValues([["Classe", "Eleve", "Synthese engagements", "Orientation", "Points a transmettre au professeur principal", "Synthese complete (copier-coller)"]]).setFontWeight("bold").setBackground("#37474F").setFontColor("white");
+  g.setFrozenRows(1);
+  g.setColumnWidth(1, 90);
+  g.setColumnWidth(2, 220);
+  g.setColumnWidth(3, 520);
+  g.setColumnWidth(4, 260);
+  g.setColumnWidth(5, 420);
+  g.setColumnWidth(6, 900);
+}
+
+function publierTerminalDepuisLive_(terminal, classes) {
+  var rows = lireRowsSourceTerminal_(terminal);
+  var buckets = {};
+  var copyRows = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var cls = cleanCell_(r[2]);
+    var eleve = cleanCell_(r[1]);
+    if (!cls || !eleve) continue;
+
+    var dateTxt = formatDateForText_(r[3]);
+    var heureTxt = formatHoraireForText_(r[4]);
+    var horaire = (dateTxt + (heureTxt ? " " + heureTxt : "")).trim();
+
+    var orientation = cleanCell_(r[11]);
+    var compl = cleanCell_(r[12]);
+    var orientationTxt = orientation;
+    if (compl) orientationTxt = orientationTxt ? (orientationTxt + " " + compl) : compl;
+
+    var pointsPP = cleanCell_(r[13]);
+    var engSentence = buildEngagementSentence_(r);
+    var fullSentence = buildPPSentence_(r, engSentence, orientationTxt, pointsPP);
+
+    var rowOut = [
+      eleve,
+      cls,
+      horaire,
+      cleanCell_(r[5]),
+      engSentence,
+      orientationTxt,
+      pointsPP,
+      fullSentence
+    ];
+
+    if (!buckets[cls]) buckets[cls] = [];
+    buckets[cls].push(rowOut);
+    copyRows.push([cls, eleve, engSentence, orientationTxt, pointsPP, fullSentence]);
+  }
+
+  var classList = (classes && classes.length) ? classes.slice() : Object.keys(buckets).sort();
+  for (var c = 0; c < classList.length; c++) {
+    var clsName = String(classList[c] || "").trim();
+    if (!clsName) continue;
+
+    var sh = getOrCreateSheet_(terminal, clsName);
+    var maxRows = Math.max(sh.getMaxRows() - 1, 1);
+    sh.getRange(2, 1, maxRows, 8).clearContent();
+
+    var data = buckets[clsName] || [];
+    data.sort(function(a, b) { return String(a[0]).localeCompare(String(b[0])); });
+    if (data.length) sh.getRange(2, 1, data.length, 8).setValues(data);
+
+    try { sh.showSheet(); } catch (e0) {}
+  }
+
+  copyRows.sort(function(a, b) {
+    return String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1]));
+  });
+
+  var g = getOrCreateSheet_(terminal, "COPIER_COLLER_GLOBAL");
+  var gMax = Math.max(g.getMaxRows() - 1, 1);
+  g.getRange(2, 1, gMax, 6).clearContent();
+  if (copyRows.length) g.getRange(2, 1, copyRows.length, 6).setValues(copyRows);
+  try { g.showSheet(); } catch (e1) {}
+}
+
+function lireRowsSourceTerminal_(terminal) {
+  var liveRows = [];
+  var live = terminal.getSheetByName("_LIVE_GLOBAL") || terminal.getSheetByName("LIVE_GLOBAL");
+
+  if (live && live.getLastRow() >= 2) {
+    var vals = live.getRange(2, 1, live.getLastRow() - 1, 15).getDisplayValues();
+    for (var i = 0; i < vals.length; i++) {
+      var eleve = cleanCell_(vals[i][1]);
+      if (!eleve) continue;
+      if (eleve.toUpperCase().indexOf("AUTORISER") >= 0) continue;
+      liveRows.push(vals[i]);
+    }
+  }
+
+  if (liveRows.length) return liveRows;
+
+  var secoursRows = [];
+  var secours = terminal.getSheetByName("DATA_SECOURS");
+  if (secours && secours.getLastRow() >= 2) {
+    var s = secours.getRange(2, 1, secours.getLastRow() - 1, 15).getDisplayValues();
+    for (var j = 0; j < s.length; j++) {
+      if (!cleanCell_(s[j][1])) continue;
+      secoursRows.push(s[j]);
+    }
+  }
+
+  return secoursRows;
+}
+
+function parseClassesFromMaster_(master) {
+  var raw = String(readInfo_(master, "CLASSES") || "");
+  if (!raw) return [];
+  var arr = raw.split(",");
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var c = String(arr[i] || "").trim();
+    if (c) out.push(c);
+  }
+  return out;
+}
+
+function cleanCell_(v) {
+  var t = String(v || "").trim();
+  if (!t || t === DASH) return "";
+  return t;
+}
+
+function ensureFinalDot_(txt) {
+  var t = String(txt || "").trim();
+  if (!t) return "";
+  if (/[.!?]$/.test(t)) return t;
+  return t + ".";
+}
+
+function formatDateForText_(v) {
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  }
+
+  var t = String(v || "").trim();
+  if (!t) return "";
+
+  // Nombre serie Google Sheets (ex: 46097)
+  if (/^\d+(?:[\.,]\d+)?$/.test(t)) {
+    var n = parseFloat(t.replace(",", "."));
+    if (!isNaN(n) && n > 20000) {
+      var d = new Date(Math.round((n - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) {
+        return Utilities.formatDate(d, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      }
+    }
+  }
+  return t;
+}
+
+function formatHoraireForText_(v) {
+  var t = String(v || "").trim();
+  if (!t) return "";
+  var m = t.match(/^(\d{1,2})\D?(\d{2})$/);
+  if (m) return m[1] + "H" + m[2];
+  return t.toUpperCase();
+}
+
+function formatEngagementPiece_(engagement, matiere) {
+  var e = cleanCell_(engagement);
+  var m = cleanCell_(matiere);
+  if (!e) return "";
+  return m ? (e + " en " + m) : e;
+}
+
+function buildEngagementSentence_(row) {
+  var parts = [];
+
+  var p1 = formatEngagementPiece_(row[6], row[7]);
+  var p2 = formatEngagementPiece_(row[8], row[9]);
+  var libre = cleanCell_(row[10]);
+
+  if (p1) parts.push(p1);
+  if (p2) parts.push(p2);
+  if (libre) parts.push(libre);
+  if (!parts.length) return "";
+
+  var merged = parts[0];
+  for (var i = 1; i < parts.length; i++) merged += " et a " + parts[i];
+
+  return "L'eleve s'engage a " + ensureFinalDot_(merged);
+}
+
+function buildPPSentence_(row, engagementSentence, orientationTxt, pointsTxt) {
+  var eleve = cleanCell_(row[1]);
+  var classe = cleanCell_(row[2]);
+  var dateTxt = formatDateForText_(row[3]);
+  var heureTxt = formatHoraireForText_(row[4]);
+
+  var prefix = eleve ? eleve : "Eleve";
+  if (classe) prefix += " (" + classe + ")";
+  if (dateTxt || heureTxt) prefix += " - " + (dateTxt + " " + heureTxt).trim();
+
+  var parts = [];
+  if (engagementSentence) parts.push(engagementSentence);
+  if (orientationTxt) parts.push("Orientation: " + ensureFinalDot_(orientationTxt));
+  if (pointsTxt) parts.push("Points a transmettre au professeur principal: " + ensureFinalDot_(pointsTxt));
+
+  if (!parts.length) return prefix + " :";
+  return prefix + " : " + parts.join(" ");
+}
+
+function synchroniserSecoursTerminal() {
+  var ui = SpreadsheetApp.getUi();
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var terminalId = readInfo_(master, "TERMINAL_ID");
+  var terminal;
+  if (terminalId) { try { terminal = SpreadsheetApp.openById(terminalId); } catch (e) {} }
+  if (!terminal) terminal = getOrCreateTerminal_(master, getBaseFolder_());
+
+  var jurysSh = master.getSheetByName(CFG.JURYS);
+  if (!jurysSh || jurysSh.getLastRow() < 2) return ui.alert("JURYS vide.");
+
+  var rows = jurysSh.getRange(2,1,jurysSh.getLastRow()-1,9).getValues();
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var fileId = extractId_(rows[i][6]) || extractId_(rows[i][5]);
+    if (!fileId) continue;
+    try {
+      var ss = SpreadsheetApp.openById(fileId);
+      var syn = ss.getSheetByName(CFG.SYNTHESES);
+      if (!syn || syn.getLastRow() < 2) continue;
+      var vals = syn.getRange(2,1,syn.getLastRow()-1,15).getValues();
+      for (var r = 0; r < vals.length; r++) {
+        if (!String(vals[r][1] || "").trim()) continue;
+        vals[r].push(new Date());
+        out.push(vals[r]);
+      }
+    } catch (e2) {}
+  }
+
+    var secours = getOrCreateSheet_(terminal, "DATA_SECOURS");
+  secours.clear();
+  var h = ["ID_Jury","Eleve","Classe","Date","Horaire","Binome","Engagement 1","Matiere 1","Engagement 2","Matiere 2","Engagement libre","Orientation","Complement orientation","Points PP","Onglet source","Synchro le"];
+  secours.getRange(1,1,1,h.length).setValues([h]).setFontWeight("bold").setBackground("#263238").setFontColor("white");
+  secours.setFrozenRows(1);
+  if (out.length) secours.getRange(2,1,out.length,h.length).setValues(out);
+
+  try { secours.hideSheet(); } catch (e3) {}
+  try { publierTerminalDepuisLive_(terminal, parseClassesFromMaster_(master)); } catch (e4) {}
+
+  ui.alert(out.length + " ligne(s) copiees dans DATA_SECOURS.");
+}
+
+function getBaseFolder_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var f = DriveApp.getFileById(ss.getId());
+  var p = f.getParents();
+  var parents = [];
+  while (p.hasNext()) parents.push(p.next());
+
+  for (var i = 0; i < parents.length; i++) {
+    if (parents[i].getName() === CFG.FALLBACK_FOLDER) return parents[i];
+  }
+  if (parents.length) return parents[0];
+
+  var it = DriveApp.getFoldersByName(CFG.FALLBACK_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(CFG.FALLBACK_FOLDER);
+}
+
+function saveInfos_(master, folder, terminal, classes) {
+  putInfo_(master, "MASTER_ID", master.getId());
+  putInfo_(master, "MASTER_URL", master.getUrl());
+  putInfo_(master, "FOLDER_ID", folder.getId());
+  putInfo_(master, "FOLDER_URL", "https://drive.google.com/drive/folders/" + folder.getId());
+  putInfo_(master, "TERMINAL_ID", terminal.getId());
+  putInfo_(master, "TERMINAL_URL", terminal.getUrl());
+  putInfo_(master, "CLASSES", classes.join(","));
+}
+
+function putInfo_(ss, key, val) {
+  var sh = ss.getSheetByName(CFG.INFOS); if (!sh) sh = ss.insertSheet(CFG.INFOS);
+  var d = sh.getDataRange().getValues();
+  for (var i = 0; i < d.length; i++) if (d[i][0] === key) { sh.getRange(i+1,2).setValue(val); return; }
+  sh.appendRow([key, val]);
+}
+
+function readInfo_(ss, key) {
+  var sh = ss.getSheetByName(CFG.INFOS); if (!sh) return null;
+  var d = sh.getDataRange().getValues();
+  for (var i = 0; i < d.length; i++) if (d[i][0] === key) return d[i][1];
+  return null;
+}
+
+function afficherResume() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  SpreadsheetApp.getUi().alert(
+    "Dossier : " + (readInfo_(ss, "FOLDER_URL") || DASH) + "\n" +
+    "Terminal : " + (readInfo_(ss, "TERMINAL_URL") || DASH) + "\n" +
+    "Classes : " + (readInfo_(ss, "CLASSES") || DASH)
+  );
+}
+
+function ouvrirDossierBase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var folderId = readInfo_(ss, "FOLDER_ID");
+  if (!folderId) {
+    var folder = getBaseFolder_();
+    folderId = folder.getId();
+    putInfo_(ss, "FOLDER_ID", folderId);
+    putInfo_(ss, "FOLDER_URL", "https://drive.google.com/drive/folders/" + folderId);
+  }
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput('<div style="text-align:center;padding:20px;"><a href="https://drive.google.com/drive/folders/' + folderId + '" target="_blank" style="font-size:16px;padding:14px 28px;background:#1565C0;color:white;text-decoration:none;border-radius:8px;">Ouvrir le dossier</a></div>').setWidth(360).setHeight(110),
+    "Dossier Conseil"
+  );
+}
+
+function fillListes_(li) {
+  li.clear();
+  var eng = [
+    "Engagements", DASH,
+    "--- TRAVAIL A LA MAISON ---",
+    "relire ma lecon 10 min la veille du cours",
+    "apprendre ma lecon le soir meme",
+    "faire mes devoirs des le jour ou ils sont donnes",
+    "commencer mon travail sans attendre le dernier moment",
+    "refaire un exercice deja corrige",
+    "apprendre un peu chaque jour au lieu de tout faire d'un coup",
+    "laisser mon telephone dans une autre piece pendant mes devoirs",
+    "reciter les definitions importantes a voix haute",
+    "--- ORGANISATION ---",
+    "noter precisement tous mes devoirs dans mon agenda",
+    "verifier mon sac la veille au soir",
+    "avoir mon materiel complet a chaque cours",
+    "sortir mes affaires des mon arrivee en classe",
+    "ouvrir mon cahier des la sonnerie",
+    "ne plus oublier mon materiel (stylos, cahier, regle)",
+    "ranger mes feuilles volantes dans mon classeur chaque soir",
+    "--- ATTENTION ET COMPORTEMENT ---",
+    "ecouter sans parler pendant les explications",
+    "ne pas bavarder pendant la lecture des consignes",
+    "me remettre au travail des que le prof le demande",
+    "rester calme et assis(e) pendant toute l'heure",
+    "ne pas distraire mes voisins de table",
+    "respecter le silence pendant le travail individuel",
+    "ne pas manipuler d'objets inutiles (trousse, gadgets)",
+    "regarder le tableau ou le prof quand il parle",
+    "--- PARTICIPATION EN CLASSE ---",
+    "lever la main au moins une fois par cours",
+    "repondre a une question au moins une fois par semaine",
+    "proposer une reponse meme si je n'ai pas de certitude",
+    "lire a voix haute un texte ou une consigne",
+    "participer activement aux travaux de groupe",
+    "ecouter les reponses des autres sans les couper",
+    "passer au tableau si on a besoin d'un volontaire",
+    "--- COMPREHENSION ET METHODE ---",
+    "poser une question des que je suis perdu(e)",
+    "demander une explication avant la fin de l'heure",
+    "relire la consigne deux fois avant de repondre",
+    "analyser mes erreurs apres un rendu de copie",
+    "essayer un exercice difficile au lieu de rendre page blanche",
+    "utiliser mon brouillon pour tester mes idees",
+    "verifier que j'ai bien repondu a toutes les questions",
+    "--- SOIN ET PRESENTATION ---",
+    "copier l'integralite du cours proprement",
+    "ecrire de facon lisible pour etre relu(e) facilement",
+    "dater chaque nouvelle seance",
+    "souligner les titres a la regle",
+    "ne pas faire de ratures et utiliser un effaceur ou du blanc",
+    "me relire 2 minutes pour corriger les fautes d'orthographe",
+    "prendre soin de mon cahier (pas de coins cornes)",
+    "--- EVALUATIONS ET ABSENCES ---",
+    "preparer mes controles au moins 2 jours avant",
+    "m'auto-interroger sur le cours pour reviser",
+    "apprendre les mots-cles par coeur",
+    "corriger serieusement mes evaluations",
+    "rattraper le cours manque avant de revenir en classe",
+    "demander les documents distribues apres une absence",
+    "etre pret(e) a travailler des le debut de l'heure"
+  ];
+  var mat = [
+    "Matieres", DASH, "toutes les matieres", "mathematiques", "francais",
+    "histoire-geographie", "EMC", "anglais", "espagnol", "allemand",
+    "SVT", "physique-chimie", "technologie", "EPS",
+    "arts plastiques", "education musicale", "latin"
+  ];
+  var ori = [
+    "Orientation", DASH, "Passage en 3e generale.",
+    "Demande de 3e Prepa-Metiers.",
+    "Demande de 3e en MFR (Maison Familiale Rurale).",
+    "Demande de 3e Agricole.",
+    "Demande de redoublement en 4e."
+  ];
+  li.getRange(1,1,eng.length,1).setValues(eng.map(function(x){return [x];}));
+  li.getRange(1,2,mat.length,1).setValues(mat.map(function(x){return [x];}));
+  li.getRange(1,3,ori.length,1).setValues(ori.map(function(x){return [x];}));
+  li.getRange(1,1,1,3).setFontWeight("bold").setBackground("#E0E0E0");
+  li.setFrozenRows(1);
+  li.setColumnWidth(1,450); li.setColumnWidth(2,220); li.setColumnWidth(3,380);
+}
+function readSheetKey_(sh) {
+  try {
+    var note = String(sh.getRange("A1").getNote() || "").trim();
+    if (note.indexOf("KEY|") === 0) return note.substring(4);
+    if (note.indexOf("|") > -1) return note;
+  } catch (e0) {}
+
+  // Compat ancienne version (stockage en D1).
+  try {
+    if (sh.getMaxColumns() >= 4) return String(sh.getRange("D1").getValue() || "").trim();
+    return "";
+  } catch (e1) {
+    return "";
+  }
+}
+
+function mapExistingStudentSheets_(ss) {
+  var out = {}, sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var sh = sheets[i];
+    if (isSystemSheetName_(sh.getName())) continue;
+    var key = readSheetKey_(sh);
+    if (key) out[key] = sh;
+  }
+  return out;
+}
+
+function makeStudentSheetName_(eleve) {
+  var t = String(eleve || "Eleve").trim();
+  t = t.replace(/[\[\]\*\?\/\\:]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) t = "Eleve";
+  if (t.length > 95) t = t.substring(0, 95);
+  return t;
+}
+
+function normalizeToken_(s) {
+  var t = String(s || "").toUpperCase();
+  if (t.normalize) t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  t = t.replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return t || "ELEVE";
+}
+
+function uniqueSheetName_(ss, desired) {
+  var name = desired, n = 2;
+  while (ss.getSheetByName(name)) {
+    var sfx = " (" + n + ")", base = desired;
+    if (base.length + sfx.length > 95) base = base.substring(0, 95 - sfx.length);
+    name = base + sfx; n++;
+  }
+  return name;
+}
+
+function makeEntryKey_(e) {
+  return [normalizeToken_(e.classe), normalizeToken_(e.eleve), normalizeToken_(e.date), normalizeToken_(e.horaire), normalizeToken_(e.juryId || "")].join("|");
+}
+
+function isSystemSheetName_(name) {
+  return name === CFG.CONFIG || name === CFG.LISTES || name === CFG.INDEX || name === CFG.SYNTHESES;
+}
+
+function getOrCreateSheet_(ss, name) {
+  var sh = ss.getSheetByName(name);
+  return sh || ss.insertSheet(name);
+}
+
+function extractId_(v) {
+  var s = String(v || ""), m = s.match(/[-\w]{25,}/);
+  return m ? m[0] : "";
+}
+
+function isReusableFile_(fileId, folder) {
+  try {
+    var f = DriveApp.getFileById(fileId);
+    if (f.isTrashed()) return false;
+    return fileInFolder_(f, folder);
+  } catch (e) {
+    return false;
+  }
+}
+
+function fileInFolder_(file, folder) {
+  try {
+    var p = file.getParents();
+    while (p.hasNext()) {
+      if (p.next().getId() === folder.getId()) return true;
+    }
+    return false;
+  } catch (e) {
+    // Certains contextes Drive peuvent lever une erreur transitoire.
+    return false;
+  }
+}
+
+function moveFileToFolder_(file, folder) {
+  // Deplacement robuste avec retries (erreurs Drive intermittentes).
+  for (var i = 0; i < 3; i++) {
+    try {
+      file.moveTo(folder);
+      return;
+    } catch (e) {
+      Utilities.sleep(400 * (i + 1));
+      if (i === 2) {
+        throw new Error("Drive moveTo impossible pour le fichier " + file.getId() + " vers le dossier " + folder.getId() + " : " + e.message);
+      }
+    }
+  }
+}
+
+function buildRunSuffix_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
+}
+
+function ensureSheetColumns_(sheet, wantedCols) {
+  if (sheet.getMaxColumns() < wantedCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), wantedCols - sheet.getMaxColumns());
+  }
+  if (sheet.getMaxColumns() > wantedCols) {
+    sheet.deleteColumns(wantedCols + 1, sheet.getMaxColumns() - wantedCols);
+  }
+}
+
+function ensureExactSheetSize_(sheet, wantedRows, wantedCols) {
+  if (sheet.getMaxRows() < wantedRows) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), wantedRows - sheet.getMaxRows());
+  }
+  if (sheet.getMaxRows() > wantedRows) {
+    sheet.deleteRows(wantedRows + 1, sheet.getMaxRows() - wantedRows);
+  }
+
+  if (sheet.getMaxColumns() < wantedCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), wantedCols - sheet.getMaxColumns());
+  }
+  if (sheet.getMaxColumns() > wantedCols) {
+    sheet.deleteColumns(wantedCols + 1, sheet.getMaxColumns() - wantedCols);
+  }
+}
+
+function dedupe_(arr) {
+  var o = {}, out = [];
+  for (var i = 0; i < arr.length; i++) if (!o[arr[i]]) { o[arr[i]] = true; out.push(arr[i]); }
+  return out;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

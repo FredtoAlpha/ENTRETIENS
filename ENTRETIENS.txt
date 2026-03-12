@@ -812,10 +812,11 @@ function preparerOngletsClasse_(terminal, classes) {
   // En-tetes des onglets de classe (12 colonnes, conforme au schema SYNTHESES sans ID_Jury/Onglet)
   var headers = [
     "\u00c9l\u00e8ve", "Horaire", "Bin\u00f4me",
+    "Appr\u00e9ciation PP", "Points PP",
     "Engagement 1", "Mati\u00e8re 1", "Engagement 2", "Mati\u00e8re 2", "Engagement libre",
-    "Orientation", "Compl\u00e9ment orientation", "Points PP", "Appr\u00e9ciation PP"
+    "Orientation", "Compl\u00e9ment orientation"
   ];
-  var widths = [220, 160, 200, 280, 130, 280, 130, 260, 190, 190, 260, 260];
+  var widths = [220, 160, 200, 300, 260, 280, 130, 280, 130, 260, 190, 190];
 
   for (var i = 0; i < classes.length; i++) {
     var cls = String(classes[i] || "").trim();
@@ -831,8 +832,8 @@ function preparerOngletsClasse_(terminal, classes) {
 
   // COPIER_COLLER_GLOBAL (7 colonnes)
   var g = getOrCreateSheet_(terminal, CFG.GLOBAL);
-  var gHeaders = ["Classe","\u00c9l\u00e8ve","Synth\u00e8se engagements","Orientation","Points PP","Appr\u00e9ciation PP","Synth\u00e8se compl\u00e8te"];
-  var gWidths  = [90, 220, 480, 240, 360, 360, 800];
+  var gHeaders = ["Classe","\u00c9l\u00e8ve","Appr\u00e9ciation PP","Synth\u00e8se engagements","Orientation","Points PP","Synth\u00e8se compl\u00e8te"];
+  var gWidths  = [90, 220, 360, 480, 240, 360, 800];
   g.clear();
   g.getRange(1, 1, 1, gHeaders.length).setValues([gHeaders])
     .setFontWeight("bold").setBackground("#37474F").setFontColor("white");
@@ -841,9 +842,9 @@ function preparerOngletsClasse_(terminal, classes) {
   try { g.showSheet(); } catch (e1) {}
 }
 
-function publierTerminalDepuisLive_(terminal, classes) {
+function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
   // Lecture des donnees brutes (getValues, pas getDisplayValues)
-  var rows = lireRowsSourceTerminal_(terminal);
+  var rows = lireRowsSourceTerminal_(terminal, forceSecours);
   if (!rows.length) return;
 
   var buckets  = {};
@@ -870,15 +871,16 @@ function publierTerminalDepuisLive_(terminal, classes) {
 
     var rowOut = [
       eleve, horaire, nettoyerCellule_(r[I.BINOME]),
+      apprTxt, ppTxt,
       nettoyerCellule_(r[I.ENG1]),  nettoyerCellule_(r[I.MAT1]),
       nettoyerCellule_(r[I.ENG2]),  nettoyerCellule_(r[I.MAT2]),
       nettoyerCellule_(r[I.ENG_LIBRE]),
-      oriTxt, complTxt, ppTxt, apprTxt
+      oriTxt, complTxt
     ];
 
     if (!buckets[cls]) buckets[cls] = [];
     buckets[cls].push(rowOut);
-    copyRows.push([cls, eleve, engSent, oriTxt, ppTxt, apprTxt, fullSent]);
+    copyRows.push([cls, eleve, apprTxt, engSent, oriTxt, ppTxt, fullSent]);
   }
 
   // Ecriture dans les onglets de classe
@@ -948,13 +950,16 @@ function synchroniserSecoursTerminal() {
   if (out.length) secours.getRange(2, 1, out.length, CFG.SYNTH_COLS + 1).setValues(out);
   try { secours.hideSheet(); } catch (e3) {}
 
-  // Publication depuis le secours tout de suite
-  try { publierTerminalDepuisLive_(terminal, parseClassesDepuisMaster_(master)); } catch (e4) {}
+  // Publication depuis le secours tout de suite (forceSecours = true)
+  try { publierTerminalDepuisLive_(terminal, parseClassesDepuisMaster_(master), true); } catch (e4) {}
 
   ui.alert(out.length + " ligne(s) copi\u00e9es dans " + CFG.SECOURS + ".");
 }
 
-function lireRowsSourceTerminal_(terminal) {
+function lireRowsSourceTerminal_(terminal, forceSecours) {
+  // Si forceSecours, on saute LIVE et on lit directement DATA_SECOURS
+  if (forceSecours) return lireRowsSecours_(terminal);
+
   // Lecture depuis _LIVE_GLOBAL (valeurs brutes, pas display)
   var live = terminal.getSheetByName(CFG.LIVE);
   if (live && live.getLastRow() >= 2) {
@@ -971,17 +976,21 @@ function lireRowsSourceTerminal_(terminal) {
   }
 
   // Fallback DATA_SECOURS
+  return lireRowsSecours_(terminal);
+}
+
+function lireRowsSecours_(terminal) {
   var secours = terminal.getSheetByName(CFG.SECOURS);
   if (secours && secours.getLastRow() >= 2) {
     try {
-      var sVals    = secours.getRange(2, 1, secours.getLastRow() - 1, CFG.SYNTH_COLS).getValues();
-      var secoursRows = [];
+      var sVals = secours.getRange(2, 1, secours.getLastRow() - 1, CFG.SYNTH_COLS).getValues();
+      var out = [];
       for (var j = 0; j < sVals.length; j++) {
         if (!String(sVals[j][CFG.I.ELEVE] || "").trim()) continue;
-        secoursRows.push(sVals[j]);
+        out.push(sVals[j]);
       }
-      return secoursRows;
-    } catch (e2) {}
+      return out;
+    } catch (e) {}
   }
   return [];
 }
@@ -998,9 +1007,10 @@ function sep_(optSs) {
   // Si optSs est fourni, on lit sa locale (important quand on écrit dans le terminal).
   var ss = optSs || SpreadsheetApp.getActiveSpreadsheet();
   var locale = ss.getSpreadsheetLocale();
-  var commaLocales = ["en_US","en_GB","en_AU","en_CA","en_NZ","ja_JP","zh_CN","zh_TW","ko_KR"];
-  for (var i = 0; i < commaLocales.length; i++) {
-    if (locale.indexOf(commaLocales[i]) === 0) return ",";
+  // Toutes les locales anglaises (en_US, en_GB, en_IE, en_IN, en_SG…) + asiatiques utilisent ","
+  var commaPatterns = ["en_", "ja_", "zh_", "ko_"];
+  for (var i = 0; i < commaPatterns.length; i++) {
+    if (locale.indexOf(commaPatterns[i]) === 0) return ",";
   }
   return ";"; // FR, DE, ES, IT, PT, NL, PL, etc.
 }
@@ -1042,14 +1052,15 @@ function premierVersTrisiemepersonne_(txt) {
   var B  = "(?<![a-z\u00e0-\u00ff])";  // lookbehind : pas de lettre avant
   var Bf = "(?![a-z\u00e0-\u00ff])";    // lookahead  : pas de lettre après
   return txt
-    .replace(new RegExp(B + "m'"  + Bf, "gi"), "s'")
+    .replace(new RegExp(B + "m'",      "gi"), "s'")      // m'auto → s'auto (pas de Bf : lettre suit l'apostrophe)
     .replace(new RegExp(B + "me"  + Bf, "gi"), "se")
     .replace(new RegExp(B + "ma"  + Bf, "gi"), "sa")
     .replace(new RegExp(B + "mon" + Bf, "gi"), "son")
     .replace(new RegExp(B + "mes" + Bf, "gi"), "ses")
     .replace(new RegExp(B + "je suis" + Bf, "gi"), "il/elle est")
-    .replace(new RegExp(B + "j'ai"    + Bf, "gi"), "il/elle a")
-    .replace(new RegExp(B + "je"      + Bf, "gi"), "il/elle");
+    .replace(new RegExp(B + "j'ai",    "gi"), "il/elle a") // j'ai → pas de Bf (lettre suit l'apostrophe)
+    .replace(new RegExp(B + "j'"     , "gi"), "il/elle ")  // j'écoute → il/elle écoute
+    .replace(new RegExp(B + "je"  + Bf, "gi"), "il/elle");
 }
 
 function formaterPieceEngagement_(engagement, matiere) {
@@ -1089,10 +1100,10 @@ function construirePhraseComplete_(row, engSent, oriTxt, ppTxt, apprTxt) {
   if (date || heure) prefix += " - " + (date + (heure ? " " + heure : "")).trim();
 
   var parts = [];
+  if (apprTxt) parts.push("Appr\u00e9ciation PP : "  + terminerParPoint_(apprTxt));
   if (engSent) parts.push(engSent);
   if (oriTxt)  parts.push("Orientation : "      + terminerParPoint_(oriTxt));
   if (ppTxt)   parts.push("Points PP : "        + terminerParPoint_(ppTxt));
-  if (apprTxt) parts.push("Appréciation PP : "  + terminerParPoint_(apprTxt));
 
   return parts.length ? (prefix + " : " + parts.join(" ")) : (prefix + " :");
 }
@@ -1176,7 +1187,14 @@ function estDansLeDossier_(file, folder) {
 }
 
 function deplacerFichier_(file, folder) {
-  file.moveTo(folder);
+  // Retry avec backoff exponentiel (Drive API transitoirement instable)
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try { file.moveTo(folder); return; }
+    catch (e) {
+      if (attempt === 2) throw e;
+      Utilities.sleep(1000 * Math.pow(2, attempt)); // 1s, 2s
+    }
+  }
 }
 
 function extractId_(v) {

@@ -880,11 +880,17 @@ function creerTamponPhrase_(terminal, s) {
     );
   }
 
+  // Strip "L'élève s'engage à " si le prof a déjà tapé la formule complète.
+  // Fonctionne avec ' ou ' (typographique) et accent facultatif.
+  var strip = function(col) {
+    return 'REGEXREPLACE(' + col + ',"(?i)^l[\u2019\u0027]\u00e9l\u00e8ve s[\u2019\u0027]engage \u00e0 ?","")';
+  };
+
   // --- Col H : Engagement 1 [en Matière 1] ---
   ph.getRange("H2").setFormula(
     '=ARRAYFORMULA(IF(' + guard + s + '""' + s +
     'IF(' + isVide(L + '!G2:G') + s + '""' + s +
-    'TRIM(' + L + '!G2:G)' +
+    strip('TRIM(' + L + '!G2:G)') +
     '&IF(' + isVide(L + '!H2:H') + s + '""' + s +
     '" en "&TRIM(' + L + '!H2:H)))))'
   );
@@ -893,16 +899,16 @@ function creerTamponPhrase_(terminal, s) {
   ph.getRange("I2").setFormula(
     '=ARRAYFORMULA(IF(' + guard + s + '""' + s +
     'IF(' + isVide(L + '!I2:I') + s + '""' + s +
-    'TRIM(' + L + '!I2:I)' +
+    strip('TRIM(' + L + '!I2:I)') +
     '&IF(' + isVide(L + '!J2:J') + s + '""' + s +
     '" en "&TRIM(' + L + '!J2:J)))))'
   );
 
-  // --- Col J : Engagement libre (texte brut) ---
+  // --- Col J : Engagement libre (texte brut, préfixe déjà inclus dans la phrase K) ---
   ph.getRange("J2").setFormula(
     '=ARRAYFORMULA(IF(' + guard + s + '""' + s +
     'IF(' + isVide(L + '!K2:K') + s + '""' + s +
-    'TRIM(' + L + '!K2:K))))'
+    strip('TRIM(' + L + '!K2:K)') + ')))'
   );
 
   // --- Col K : Phrase finale ---
@@ -957,10 +963,11 @@ function preparerOngletsClasse_(terminal, classes, s) {
     sh.setFrozenRows(1);
     for (var w = 0; w < widths.length; w++) sh.setColumnWidth(w + 1, widths[w]);
 
-    // Condition : classe = cls ET élève non vide
-    var condCls = PH + '!B2:B="' + cls + '"';
-    var condElv = PH + '!A2:A<>""';
-    var cond    = condCls + s + condElv;
+    // Condition : classe = cls ET élève non vide ET phrase non vide
+    var condCls    = PH + '!B2:B="' + cls + '"';
+    var condElv    = PH + '!A2:A<>""';
+    var condPhrase = PH + '!K2:K<>""';
+    var cond       = condCls + s + condElv + s + condPhrase;
 
     sh.getRange("A2").setFormula('=IFERROR(FILTER(' + PH + '!A2:A' + s + cond + ')' + s + '"")');
     sh.getRange("B2").setFormula('=IFERROR(FILTER(' + PH + '!C2:C' + s + cond + ')' + s + '"")');
@@ -968,6 +975,9 @@ function preparerOngletsClasse_(terminal, classes, s) {
 
     // Wrap sur la colonne engagement (spill couvert par 32 lignes — 30 élèves + marge)
     sh.getRange(2, 3, 32, 1).setWrap(true);
+
+    // Supprimer les colonnes superflues (on n'en veut que 3 : Élève, Binôme, Engagement)
+    if (sh.getMaxColumns() > 3) sh.deleteColumns(4, sh.getMaxColumns() - 3);
 
     try { sh.showSheet(); } catch (e0) {}
   }

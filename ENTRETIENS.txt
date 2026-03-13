@@ -183,9 +183,11 @@ function parserDonnees_(data) {
     var rowJoin = cells.join(" ").toUpperCase();
 
     // Detection classe
-    if (rowJoin.match(/4\s*[E\u00c8]\s*[Mm]\s*[Ee]\s*\d/) && !rowJoin.match(/HEURE|SALLE|BIN|DATE|LISTE/)) {
+    if (rowJoin.match(/4\s*[E\u00c8]\s*ME\s*\d/) && !rowJoin.match(/HEURE|SALLE|BIN|DATE|LISTE/)) {
+      // rowJoin est déjà uppercasé : [Mm]/[Ee] inutiles sur le 1er pattern.
+      // Avec /i, [E\u00c8] couvre E/e/È/è — [e\u00e8] redondants sur le 2e.
       for (var c2 = 0; c2 < cells.length; c2++) {
-        var m = cells[c2].match(/4\s*[E\u00c8e\u00e8]\s*[Mm]\s*[Ee]\s*(\d)/i);
+        var m = cells[c2].match(/4\s*[E\u00c8]\s*ME\s*(\d)/i);
         if (m) { currentClass = "4EME" + m[1]; break; }
       }
       awaitingProf2 = false;
@@ -941,9 +943,15 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
 }
 
 // =============================================================================
-// BLOC 7 : PATCH ancienne mise en page
+// BLOC 7 : PATCH ancienne mise en page + DIAGNOSTIC
 // =============================================================================
-
+//
+// NOTE : les deux fonctions ci-dessous (patcherSynthesesAncienneLayout et
+// diagnosticEngagements) sont des OUTILS MANUELS de migration et de diagnostic.
+// Elles NE SONT PAS appelées par le workflow automatique (executerWorkflow_inner_,
+// mettreAJourTerminalLive_, publierTerminalDepuisLive_...).
+// Elles restent accessibles depuis le menu "Conseil 4e" pour un usage ponctuel.
+//
 // Avant le commit "Réordonner sections maquette", les fiches élèves avaient :
 //   ENG1=B9, MAT1=B10, ENG2=B12, MAT2=B13, ENG_LIBRE=B15 (fusionné B15:B18)
 //   ORI=B21, COMPL_ORI=B23, POINTS_PP=B27, APPRE_PP=B31 (fusionné B31:B33)
@@ -1235,11 +1243,27 @@ function formaterHoraire_(v) {
 
 // Transforme la formulation à la 1re personne (liste déroulante)
 // en 3e personne pour l'affichage dans le terminal.
-// Problème : \b en JavaScript est ASCII-only (\w = [a-zA-Z0-9_]).
-// Les caractères accentués (é, è, ê, à…) sont hors-\w, donc \b les traite
-// comme des frontières de mot → "même" serait cassé par \bme\b.
-// Solution : utiliser des lookbehind/lookahead qui excluent les lettres Unicode.
-// Compatibilité : V8 (Apps Script depuis 2020) supporte les lookbehind.
+//
+// Pourquoi ne pas utiliser \b (word boundary) ?
+//   \b est ASCII-only (\w = [a-zA-Z0-9_]). Les lettres accentuées (é, è, à…)
+//   étant hors-\w, \b les considère comme des frontières de mot : \bme\b
+//   casserait "même" en le remplaçant partiellement.
+// Solution : lookbehind/lookahead explicites excluant les lettres Unicode.
+//   B  = "(?<![a-z\u00e0-\u00ff])" → pas de lettre (ASCII ou accentuée) AVANT
+//   Bf = "(?![a-z\u00e0-\u00ff])"  → pas de lettre APRÈS
+//   Ces frontières "françaises" sont insensibles à la casse grâce au flag /i.
+// Compatibilité : V8 (Apps Script moteur actuel) supporte les lookbehind ES2018.
+//
+// Substitutions appliquées (ordre important — du plus spécifique au plus général) :
+//   m' → s'      (m'autorise → s'autorise)
+//   me → se      (me concentrer → se concentrer)
+//   ma → sa      (ma méthode → sa méthode)
+//   mon → son    (mon cahier → son cahier)
+//   mes → ses    (mes devoirs → ses devoirs)
+//   je suis → il/elle est
+//   j'ai → il/elle a
+//   j' → il/elle (j'écoute → il/elle écoute)
+//   je → il/elle
 function premierVersTrisiemepersonne_(txt) {
   if (!txt) return txt;
   // Frontière "mot français" : ni lettre ASCII ni lettre accentuée avant/après
@@ -1349,7 +1373,14 @@ function ouvrirDossierBase() {
   );
 }
 
+// Cache en mémoire pour lireInfo_ — évite de relire l'onglet _INFOS_ à chaque appel.
+// Les globales JS sont réinitialisées à chaque exécution Apps Script : aucun risque de
+// données périmées entre deux runs distincts.
+var _infoCache_      = {};  // { "ssId|key": value }
+var _infoCacheReady_ = {};  // { ssId: true } — feuille déjà chargée pour ce classeur
+
 function ecrireInfo_(ss, key, val) {
+  _infoCache_[ss.getId() + "|" + key] = val; // mise à jour anticipée du cache
   var sh = ss.getSheetByName(CFG.INFOS);
   if (!sh) sh = ss.insertSheet(CFG.INFOS);
   var d = sh.getDataRange().getValues();
@@ -1360,11 +1391,20 @@ function ecrireInfo_(ss, key, val) {
 }
 
 function lireInfo_(ss, key) {
-  var sh = ss.getSheetByName(CFG.INFOS);
-  if (!sh) return null;
-  var d = sh.getDataRange().getValues();
-  for (var i = 0; i < d.length; i++) if (d[i][0] === key) return d[i][1];
-  return null;
+  var ssId = ss.getId();
+  // Chargement unique : on lit la feuille une seule fois par classeur par exécution
+  if (!_infoCacheReady_[ssId]) {
+    _infoCacheReady_[ssId] = true;
+    var sh = ss.getSheetByName(CFG.INFOS);
+    if (sh) {
+      var d = sh.getDataRange().getValues();
+      for (var i = 0; i < d.length; i++) {
+        if (d[i][0]) _infoCache_[ssId + "|" + String(d[i][0])] = d[i][1];
+      }
+    }
+  }
+  var v = _infoCache_[ssId + "|" + key];
+  return v !== undefined ? v : null;
 }
 
 function getBaseFolder_() {

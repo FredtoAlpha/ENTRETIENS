@@ -80,6 +80,7 @@ function onOpen() {
     .addItem("Synchroniser DATA_SECOURS", "synchroniserSecoursTerminal")
     .addSeparator()
     .addItem("PATCH \u2014 Corriger engagements (anciennes fiches)", "patcherSynthesesAncienneLayout")
+    .addItem("DIAG \u2014 Lire ENG1/ENG2 dans les SYNTHESES", "diagnosticEngagements")
     .addSeparator()
     .addItem("R\u00e9sum\u00e9", "afficherResume")
     .addItem("Ouvrir dossier", "ouvrirDossierBase")
@@ -1025,6 +1026,72 @@ function patcherSynthesesAncienneLayout() {
     "Lancez ensuite \u00ab\u00a0Actualiser terminal prof\u00a0\u00bb pour rafra\u00eechir COPIER_COLLER_GLOBAL.",
     ui.ButtonSet.OK
   );
+}
+
+// Diagnostic : lit SYNTHESES de chaque jury et affiche ce que ENG1/ENG2 contiennent.
+// Permet de savoir si le problème vient des données (profs n'ont pas rempli)
+// ou de la chaîne technique (IMPORTRANGE, QUERY, formules SYNTHESES).
+function diagnosticEngagements() {
+  var ui = SpreadsheetApp.getUi();
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var jurysSh = master.getSheetByName(CFG.JURYS);
+  if (!jurysSh || jurysSh.getLastRow() < 2) return ui.alert("Onglet JURYS vide.");
+
+  var rows   = jurysSh.getRange(2, 1, jurysSh.getLastRow() - 1, 9).getValues();
+  var lines  = [];
+  var totalEleves = 0, avecEng1 = 0, avecEng2 = 0, avecLibre = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var juryId = String(rows[i][0] || "").trim();
+    var fileId = extractId_(String(rows[i][6] || "")) || extractId_(String(rows[i][5] || ""));
+    if (!fileId) { lines.push(juryId + " : pas de fichier"); continue; }
+
+    try {
+      var ss  = SpreadsheetApp.openById(fileId);
+      var syn = ss.getSheetByName(CFG.SYNTHESES);
+      if (!syn || syn.getLastRow() < 2) { lines.push(juryId + " : SYNTHESES vide"); continue; }
+
+      // getValues() retourne les valeurs calculées (résultats des formules)
+      var vals = syn.getRange(2, 1, syn.getLastRow() - 1, CFG.SYNTH_COLS).getValues();
+      var juryInfo = [];
+      for (var r = 0; r < vals.length; r++) {
+        var eleve = String(vals[r][CFG.I.ELEVE] || "").trim();
+        if (!eleve) continue;
+        totalEleves++;
+        var eng1  = String(vals[r][CFG.I.ENG1]     || "").trim();
+        var eng2  = String(vals[r][CFG.I.ENG2]     || "").trim();
+        var libre = String(vals[r][CFG.I.ENG_LIBRE] || "").trim();
+        var flag1 = (eng1 && eng1 !== DASH) ? "OK" : (eng1 === DASH ? "TIRET" : "VIDE");
+        var flag2 = (eng2 && eng2 !== DASH) ? "OK" : (eng2 === DASH ? "TIRET" : "VIDE");
+        if (flag1 === "OK") avecEng1++;
+        if (flag2 === "OK") avecEng2++;
+        if (libre && libre !== DASH) avecLibre++;
+        juryInfo.push("  " + eleve + " | Eng1:" + flag1 + " | Eng2:" + flag2 + " | Libre:" + (libre ? libre.substring(0,20) : "VIDE"));
+      }
+      lines.push(juryId + " (" + juryInfo.length + " élèves) :");
+      for (var j = 0; j < juryInfo.length; j++) lines.push(juryInfo[j]);
+    } catch (err) {
+      lines.push(juryId + " : ERREUR — " + err.message);
+    }
+  }
+
+  var resume = "RÉSUMÉ : " + totalEleves + " élèves | Eng1 rempli:" + avecEng1 +
+               " | Eng2 rempli:" + avecEng2 + " | Libre rempli:" + avecLibre + "\n\n";
+  // Affiche dans un nouvel onglet (le texte peut être long)
+  var diagSh = getOrCreateSheet_(master, "_DIAG_ENGAGEMENTS_");
+  diagSh.clear();
+  var output = [["Diagnostic engagements — " + new Date()]].concat(lines.map(function(l) { return [l]; }));
+  diagSh.getRange(1, 1, output.length, 1).setValues(output);
+  diagSh.setColumnWidth(1, 600);
+  diagSh.showSheet();
+  master.setActiveSheet(diagSh);
+
+  ui.alert("Diagnostic terminé", resume +
+    "Résultat détaillé dans l'onglet _DIAG_ENGAGEMENTS_.\n\n" +
+    "Si Eng1/Eng2 = TIRET : les profs n'ont pas changé la liste déroulante (valeur par défaut —).\n" +
+    "Si Eng1/Eng2 = VIDE  : formule SYNTHESES ne lit pas la bonne cellule.\n" +
+    "Si Eng1/Eng2 = OK    : le problème vient de l'IMPORTRANGE ou du terminal.",
+    ui.ButtonSet.OK);
 }
 
 // =============================================================================

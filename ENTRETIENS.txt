@@ -843,29 +843,37 @@ function preparerOngletsClasse_(terminal, classes, s) {
     sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');
 
     // Col C : phrase d'engagement complete prete a copier-coller sur le bulletin.
-    // LET filtre G(Eng1) H(Mat1) I(Eng2) J(Mat2) K(EngLibre) une seule fois.
+    // LET filtre eng1(G) mat1(H) eng2(I) mat2(J) libre(K) une seule fois.
+    // MAP+LAMBDA+TEXTJOIN itere sur chaque eleve (evite le IF classique qui
+    // ne calcule que la 1re ligne quand les args sont des tableaux).
     // CHAR(8212) = tiret cadratin (valeur par defaut des menus = non rempli).
-    // Format : "L'eleve s'engage a [G1][ en H1].\nEt a [I1][ en J1].\n[K1]"
+    // Format : "L'eleve s'engage a [eng1][ en mat1].\nEt a [eng2][ en mat2].\n[libre]"
     sh.getRange("C2").setFormula(
       '=IFERROR(LET(' +
-        'fCls' + s + L + '!C2:C="' + cls + '"' + s +
-        'fElv' + s + L + '!B2:B<>""' + s +
-        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'fCls' + s + 'fElv)' + s +
-        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'fCls' + s + 'fElv)' + s +
-        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'fCls' + s + 'fElv)' + s +
-        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'fCls' + s + 'fElv)' + s +
-        'K' + s + 'FILTER(' + L + '!K2:K' + s + 'fCls' + s + 'fElv)' + s +
-        'IF((G<>"")*(G<>CHAR(8212))' + s +
-          '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&G' +
-          '&IF((H<>"")*(H<>CHAR(8212))' + s + '" en "&H' + s + '"")' +
-          '&"."' +
-          '&IF((I<>"")*(I<>CHAR(8212))' + s +
-            'CHAR(10)&"Et \u00e0 "&I' +
-            '&IF((J<>"")*(J<>CHAR(8212))' + s + '" en "&J' + s + '"")' +
-            '&"."' +
-          s + '"")' +
-          '&IF((K<>"")*(K<>CHAR(8212))' + s + 'CHAR(10)&K' + s + '"")' +
-        s + '""' +
+        'critCls' + s + L + '!C2:C="' + cls + '"' + s +
+        'critElv' + s + L + '!B2:B<>""' + s +
+        'eng1' + s + 'FILTER(' + L + '!G2:G' + s + 'critCls' + s + 'critElv)' + s +
+        'mat1' + s + 'FILTER(' + L + '!H2:H' + s + 'critCls' + s + 'critElv)' + s +
+        'eng2' + s + 'FILTER(' + L + '!I2:I' + s + 'critCls' + s + 'critElv)' + s +
+        'mat2' + s + 'FILTER(' + L + '!J2:J' + s + 'critCls' + s + 'critElv)' + s +
+        'libre' + s + 'FILTER(' + L + '!K2:K' + s + 'critCls' + s + 'critElv)' + s +
+        'MAP(eng1' + s + 'mat1' + s + 'eng2' + s + 'mat2' + s + 'libre' + s +
+          'LAMBDA(e1' + s + 'm1' + s + 'e2' + s + 'm2' + s + 'lb' + s +
+            'TEXTJOIN(CHAR(10)' + s + 'TRUE' + s +
+              'IF((e1<>"")*(e1<>CHAR(8212))' + s +
+                '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&e1' +
+                '&IF((m1<>"")*(m1<>CHAR(8212))' + s + '" en "&m1' + s + '"")' +
+                '&"."' +
+              s + '"")' + s +
+              'IF((e2<>"")*(e2<>CHAR(8212))' + s +
+                'IF((e1<>"")*(e1<>CHAR(8212))' + s + '"Et \u00e0 "' + s + '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 ")' +
+                '&e2' +
+                '&IF((m2<>"")*(m2<>CHAR(8212))' + s + '" en "&m2' + s + '"")' +
+                '&"."' +
+              s + '"")' + s +
+              'IF((lb<>"")*(lb<>CHAR(8212))' + s + 'lb' + s + '"")' +
+            ')' +
+          ')' +
         ')' +
       ')' + s + '"")'
     );

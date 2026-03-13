@@ -22,10 +22,11 @@ var CFG = {
   INDEX:     "INDEX",
   SYNTHESES: "SYNTHESES",
   // Onglets terminal
-  AUTH:      "_AUTH_IMPORTRANGE",
-  LIVE:      "_LIVE_GLOBAL",
-  SECOURS:   "DATA_SECOURS",
-  GLOBAL:    "COPIER_COLLER_GLOBAL",
+  AUTH:          "_AUTH_IMPORTRANGE",
+  LIVE:          "_LIVE_GLOBAL",
+  TAMPON_PHRASE: "_TAMPON_PH_",   // tampon intermédiaire : construit la phrase engagement étape par étape
+  SECOURS:       "DATA_SECOURS",
+  GLOBAL:        "COPIER_COLLER_GLOBAL",
   // Noms fichiers
   TERMINAL_NAME:   "CC_Terminal_4EME",
   JURY_PREFIX:     "CC_JURY_",
@@ -800,6 +801,9 @@ function mettreAJourTerminalLive_(terminal, classes) {
   }
   try { live.hideSheet(); } catch (e2) {}
 
+  // --- _TAMPON_PH_ (tampon phrase, caché) : construit la phrase AVANT les onglets classe ---
+  creerTamponPhrase_(terminal, s);
+
   // --- Onglets de classe + COPIER_COLLER_GLOBAL ---
   preparerOngletsClasse_(terminal, classes, s);
   SpreadsheetApp.flush();
@@ -817,15 +821,134 @@ function construireFormuleLiveLocale_(s) {
          s + '"select * where Col2 is not null order by Col3,Col2"' + s + '0)';
 }
 
-function preparerOngletsClasse_(terminal, classes, s) {
-  // 3 colonnes, mise a jour automatique par formules FILTER+LET (pas de bouton).
-  // Col A : Élève  |  Col B : Binôme  |  Col C : Engagement pret a copier-coller.
-  // Les valeurs ENG1/ENG2 viennent des menus deroulants (deja en 3e personne).
-  var headers = ["\u00c9l\u00e8ve", "Bin\u00f4me", "Engagement (copier-coller)"];
-  var widths  = [200, 180, 480];
+// =============================================================================
+// TAMPON PHRASE : construction étape par étape de la phrase engagement
+// =============================================================================
+//
+// Architecture :
+//   _TAMPON_1  →  _LIVE_GLOBAL  →  _TAMPON_PH_  →  onglets classe (4EME1…)
+//
+// _TAMPON_PH_ (caché) contient 11 colonnes :
+//   A  Élève          ←  _LIVE_GLOBAL!B
+//   B  Classe         ←  _LIVE_GLOBAL!C
+//   C  Binôme         ←  _LIVE_GLOBAL!F
+//   D  Appréciation PP←  _LIVE_GLOBAL!O
+//   E  Orientation    ←  _LIVE_GLOBAL!L
+//   F  Complément ori ←  _LIVE_GLOBAL!M
+//   G  Points PP      ←  _LIVE_GLOBAL!N
+//   H  _Pièce1        =  Eng1 [en Mat1]          — vide si menu = tiret
+//   I  _Pièce2        =  Eng2 [en Mat2]  (raw)   — vide si menu = tiret
+//   J  _Pièce3        =  Engagement libre (raw)   — vide si non saisi
+//   K  Phrase finale  =  "L'élève s'engage à H[↵Puis à I][↵Et enfin à J]."
+//
+// Chaque onglet classe fait un simple FILTER sur les colonnes de _TAMPON_PH_.
+// Plus de LET/MAP/LAMBDA dans les onglets classe.
 
-  // Nom de l'onglet source entre apostrophes pour les formules Sheets
-  var L = "'" + CFG.LIVE + "'";
+function creerTamponPhrase_(terminal, s) {
+  var ph = getOrCreateSheet_(terminal, CFG.TAMPON_PHRASE);
+  ph.clear();
+  ph.setFrozenRows(1);
+
+  // En-tête
+  ph.getRange(1, 1, 1, 11).setValues([[
+    "\u00c9l\u00e8ve", "Classe", "Bin\u00f4me",
+    "Appr PP", "Orientation", "Compl Ori", "Points PP",
+    "_Eng1+Mat1", "_Eng2+Mat2", "_Libre", "Engagement (phrase)"
+  ]]).setFontWeight("bold").setBackground("#E8EAF6");
+
+  var L = "'" + CFG.LIVE + "'";  // référence à _LIVE_GLOBAL
+
+  // isVide(range) : 1 si la cellule est vide OU égale au tiret cadratin (valeur par défaut des menus)
+  // Utilisé dans les ARRAYFORMULA pour ignorer les valeurs non saisies.
+  var isVide = function(r) {
+    return '((' + r + '="")+(' + r + '=CHAR(8212)))';
+  };
+
+  // Condition "élève non vide" — protège les lignes vides du bas de _LIVE_GLOBAL
+  var guard = L + '!B2:B=""';
+
+  // --- Colonnes miroir A-G : copie simple depuis _LIVE_GLOBAL ---
+  var miroirs = [
+    ["A2", L + "!B2:B"],  // Élève
+    ["B2", L + "!C2:C"],  // Classe
+    ["C2", L + "!F2:F"],  // Binôme
+    ["D2", L + "!O2:O"],  // Appréciation PP
+    ["E2", L + "!L2:L"],  // Orientation
+    ["F2", L + "!M2:M"],  // Complément orientation
+    ["G2", L + "!N2:N"]   // Points PP
+  ];
+  for (var mi = 0; mi < miroirs.length; mi++) {
+    ph.getRange(miroirs[mi][0]).setFormula(
+      '=ARRAYFORMULA(IF(' + guard + s + '""' + s + miroirs[mi][1] + '))'
+    );
+  }
+
+  // --- Col H : Engagement 1 [en Matière 1] ---
+  ph.getRange("H2").setFormula(
+    '=ARRAYFORMULA(IF(' + guard + s + '""' + s +
+    'IF(' + isVide(L + '!G2:G') + s + '""' + s +
+    'TRIM(' + L + '!G2:G)' +
+    '&IF(' + isVide(L + '!H2:H') + s + '""' + s +
+    '" en "&TRIM(' + L + '!H2:H)))))'
+  );
+
+  // --- Col I : Engagement 2 [en Matière 2] (raw, sans "puis à" — ajouté dans K) ---
+  ph.getRange("I2").setFormula(
+    '=ARRAYFORMULA(IF(' + guard + s + '""' + s +
+    'IF(' + isVide(L + '!I2:I') + s + '""' + s +
+    'TRIM(' + L + '!I2:I)' +
+    '&IF(' + isVide(L + '!J2:J') + s + '""' + s +
+    '" en "&TRIM(' + L + '!J2:J)))))'
+  );
+
+  // --- Col J : Engagement libre (texte brut) ---
+  ph.getRange("J2").setFormula(
+    '=ARRAYFORMULA(IF(' + guard + s + '""' + s +
+    'IF(' + isVide(L + '!K2:K') + s + '""' + s +
+    'TRIM(' + L + '!K2:K))))'
+  );
+
+  // --- Col K : Phrase finale ---
+  // Règles d'assemblage (H=Pièce1, I=Pièce2, J=Libre) :
+  //   H seul       → "L'élève s'engage à H."
+  //   H + I        → "L'élève s'engage à H↵Puis à I."
+  //   H + I + J    → "L'élève s'engage à H↵Puis à I↵Et enfin à J."
+  //   H + J        → "L'élève s'engage à H↵Et enfin à J."
+  //   I seul       → "L'élève s'engage à I."      (I prend la 1re place)
+  //   J seul       → "L'élève s'engage à J."      (idem)
+  //   Rien         → ""
+  ph.getRange("K2").setFormula(
+    '=ARRAYFORMULA(' +
+    'IF(A2:A=""' + s + '""' + s +
+    'IF((H2:H="")*(I2:I="")*(J2:J="")' + s + '""' + s +
+    '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "' +
+    // Pièce 1 (ou vide)
+    '&IF(H2:H<>""' + s + 'H2:H' + s + '"")' +
+    // Pièce 2 : "↵Puis à I" si H+I, sinon I seul si H absent
+    '&IF((H2:H<>"")*(I2:I<>"")' + s +
+        'CHAR(10)&"Puis \u00e0 "&I2:I' + s +
+        'IF((H2:H="")*(I2:I<>"")' + s + 'I2:I' + s + '""))' +
+    // Pièce 3 : "↵Et enfin à J" si quelque chose avant, sinon J seul
+    '&IF(J2:J<>""' + s +
+        'IF((H2:H<>"")+(I2:I<>"")' + s +
+            'CHAR(10)&"Et enfin \u00e0 "&J2:J' + s +
+            'J2:J)' + s +
+        '"")' +
+    '&"."' +
+    ')))'
+  );
+
+  ph.setColumnWidth(11, 520);
+  try { ph.hideSheet(); } catch (e) {}
+}
+
+function preparerOngletsClasse_(terminal, classes, s) {
+  // Formules FILTER simples sur _TAMPON_PH_ — la phrase est déjà construite dedans.
+  // Col A : Élève  |  Col B : Binôme  |  Col C : Phrase engagement (prête à copier-coller).
+  var headers = ["\u00c9l\u00e8ve", "Bin\u00f4me", "Engagement (copier-coller)"];
+  var widths  = [200, 180, 520];
+
+  var PH = "'" + CFG.TAMPON_PHRASE + "'";  // référence à _TAMPON_PH_
 
   for (var i = 0; i < classes.length; i++) {
     var cls = String(classes[i] || "").trim();
@@ -837,51 +960,17 @@ function preparerOngletsClasse_(terminal, classes, s) {
     sh.setFrozenRows(1);
     for (var w = 0; w < widths.length; w++) sh.setColumnWidth(w + 1, widths[w]);
 
-    // Condition de filtre commune (Classe = cls ET Eleve non vide)
-    var cond = s + L + '!C2:C="' + cls + '"' + s + L + '!B2:B<>""';
+    // Condition : classe = cls ET élève non vide
+    var condCls = PH + '!B2:B="' + cls + '"';
+    var condElv = PH + '!A2:A<>""';
+    var cond    = condCls + s + condElv;
 
-    // Col A : Élève, Col B : Binôme
-    sh.getRange("A2").setFormula('=IFERROR(FILTER(' + L + '!B2:B' + cond + ')' + s + '"")');
-    sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');
+    sh.getRange("A2").setFormula('=IFERROR(FILTER(' + PH + '!A2:A' + s + cond + ')' + s + '"")');
+    sh.getRange("B2").setFormula('=IFERROR(FILTER(' + PH + '!C2:C' + s + cond + ')' + s + '"")');
+    sh.getRange("C2").setFormula('=IFERROR(FILTER(' + PH + '!K2:K' + s + cond + ')' + s + '"")');
 
-    // Col C : phrase d'engagement complete prete a copier-coller sur le bulletin.
-    // LET filtre eng1(G) mat1(H) eng2(I) mat2(J) libre(K) une seule fois.
-    // MAP+LAMBDA+TEXTJOIN itere sur chaque eleve (evite le IF classique qui
-    // ne calcule que la 1re ligne quand les args sont des tableaux).
-    // CHAR(8212) = tiret cadratin (valeur par defaut des menus = non rempli).
-    // Format : "L'eleve s'engage a [eng1][ en mat1].\nEt a [eng2][ en mat2].\n[libre]"
-    sh.getRange("C2").setFormula(
-      '=IFERROR(LET(' +
-        'critCls' + s + L + '!C2:C="' + cls + '"' + s +
-        'critElv' + s + L + '!B2:B<>""' + s +
-        'eng1' + s + 'FILTER(' + L + '!G2:G' + s + 'critCls' + s + 'critElv)' + s +
-        'mat1' + s + 'FILTER(' + L + '!H2:H' + s + 'critCls' + s + 'critElv)' + s +
-        'eng2' + s + 'FILTER(' + L + '!I2:I' + s + 'critCls' + s + 'critElv)' + s +
-        'mat2' + s + 'FILTER(' + L + '!J2:J' + s + 'critCls' + s + 'critElv)' + s +
-        'libre' + s + 'FILTER(' + L + '!K2:K' + s + 'critCls' + s + 'critElv)' + s +
-        'MAP(eng1' + s + 'mat1' + s + 'eng2' + s + 'mat2' + s + 'libre' + s +
-          'LAMBDA(e1' + s + 'm1' + s + 'e2' + s + 'm2' + s + 'lb' + s +
-            'TEXTJOIN(CHAR(10)' + s + 'TRUE' + s +
-              'IF((e1<>"")*(e1<>CHAR(8212))' + s +
-                '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&e1' +
-                '&IF((m1<>"")*(m1<>CHAR(8212))' + s + '" en "&m1' + s + '"")' +
-                '&"."' +
-              s + '"")' + s +
-              'IF((e2<>"")*(e2<>CHAR(8212))' + s +
-                'IF((e1<>"")*(e1<>CHAR(8212))' + s + '"Et \u00e0 "' + s + '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 ")' +
-                '&e2' +
-                '&IF((m2<>"")*(m2<>CHAR(8212))' + s + '" en "&m2' + s + '"")' +
-                '&"."' +
-              s + '"")' + s +
-              'IF((lb<>"")*(lb<>CHAR(8212))' + s + 'lb' + s + '"")' +
-            ')' +
-          ')' +
-        ')' +
-      ')' + s + '"")'
-    );
-
-    // Wrap sur la colonne engagement (spill couvert par 30 lignes)
-    sh.getRange(2, 3, 30, 1).setWrap(true);
+    // Wrap sur la colonne engagement (spill couvert par 32 lignes — 30 élèves + marge)
+    sh.getRange(2, 3, 32, 1).setWrap(true);
 
     try { sh.showSheet(); } catch (e0) {}
   }

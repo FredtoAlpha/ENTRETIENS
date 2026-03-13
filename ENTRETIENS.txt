@@ -816,16 +816,11 @@ function construireFormuleLiveLocale_(s) {
 }
 
 function preparerOngletsClasse_(terminal, classes, s) {
-  // 8 colonnes, mise a jour automatique par formules FILTER (pas de bouton).
-  // Col C : engagements fusionnes avec CHAR(10) via LET+FILTER (pret a copier-coller).
-  // Col D : engagement libre (le jury doit commencer par "L'eleve s'engage a...").
-  var headers = [
-    "\u00c9l\u00e8ve", "Bin\u00f4me",
-    "Engagements", "Engagement libre",
-    "Appr\u00e9ciation PP", "Points PP",
-    "Orientation", "Compl\u00e9ment orientation"
-  ];
-  var widths = [200, 180, 380, 300, 300, 200, 180, 180];
+  // 3 colonnes, mise a jour automatique par formules FILTER+LET (pas de bouton).
+  // Col A : Élève  |  Col B : Binôme  |  Col C : Engagement pret a copier-coller.
+  // Les valeurs ENG1/ENG2 viennent des menus deroulants (deja en 3e personne).
+  var headers = ["\u00c9l\u00e8ve", "Bin\u00f4me", "Engagement (copier-coller)"];
+  var widths  = [200, 180, 480];
 
   // Nom de l'onglet source entre apostrophes pour les formules Sheets
   var L = "'" + CFG.LIVE + "'";
@@ -841,53 +836,55 @@ function preparerOngletsClasse_(terminal, classes, s) {
     for (var w = 0; w < widths.length; w++) sh.setColumnWidth(w + 1, widths[w]);
 
     // Condition de filtre commune (Classe = cls ET Eleve non vide)
-    // s = separateur locale (;  ou  ,)
     var cond = s + L + '!C2:C="' + cls + '"' + s + L + '!B2:B<>""';
 
-    // Formules FILTER simples (1 colonne chacune, spill vertical automatique)
-    sh.getRange("A2").setFormula('=IFERROR(FILTER(' + L + '!B2:B' + cond + ')' + s + '"")');  // Eleve
-    sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');  // Binome
-    sh.getRange("D2").setFormula('=IFERROR(FILTER(' + L + '!K2:K' + cond + ')' + s + '"")');  // Eng libre
-    sh.getRange("E2").setFormula('=IFERROR(FILTER(' + L + '!O2:O' + cond + ')' + s + '"")');  // Appréci PP
-    sh.getRange("F2").setFormula('=IFERROR(FILTER(' + L + '!N2:N' + cond + ')' + s + '"")');  // Points PP
-    sh.getRange("G2").setFormula('=IFERROR(FILTER(' + L + '!L2:L' + cond + ')' + s + '"")');  // Orientation
-    sh.getRange("H2").setFormula('=IFERROR(FILTER(' + L + '!M2:M' + cond + ')' + s + '"")');  // Compl Ori
+    // Col A : Élève, Col B : Binôme
+    sh.getRange("A2").setFormula('=IFERROR(FILTER(' + L + '!B2:B' + cond + ')' + s + '"")');
+    sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');
 
-    // Col C : engagements fusionnes avec retour a la ligne.
-    // LET evite de repeter le FILTER 4 fois (G=Eng1, H=Mat1, I=Eng2, J=Mat2).
-    // Resultat : "L'eleve s'engage a [Eng1] en [Mat1]" + CHAR(10) + "et a [Eng2] en [Mat2]"
-    // Note : les valeurs viennent du jury (saisie 1re personne) — la 3e personne est
-    // calculee dans COPIER_COLLER_GLOBAL (Apps Script).
+    // Col C : phrase d'engagement complete prete a copier-coller sur le bulletin.
+    // LET filtre G(Eng1) H(Mat1) I(Eng2) J(Mat2) K(EngLibre) une seule fois.
+    // CHAR(8212) = tiret cadratin (valeur par defaut des menus = non rempli).
+    // Format : "L'eleve s'engage a [G1][ en H1].\nEt a [I1][ en J1].\n[K1]"
     sh.getRange("C2").setFormula(
       '=IFERROR(LET(' +
-        'c1' + s + L + '!C2:C="' + cls + '"' + s +
-        'c2' + s + L + '!B2:B<>""' + s +
-        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'c1' + s + 'c2)' + s +
-        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'c1' + s + 'c2)' + s +
-        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'c1' + s + 'c2)' + s +
-        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'c1' + s + 'c2)' + s +
-        'IF(G<>""' + s +
+        'fCls' + s + L + '!C2:C="' + cls + '"' + s +
+        'fElv' + s + L + '!B2:B<>""' + s +
+        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'fCls' + s + 'fElv)' + s +
+        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'fCls' + s + 'fElv)' + s +
+        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'fCls' + s + 'fElv)' + s +
+        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'fCls' + s + 'fElv)' + s +
+        'K' + s + 'FILTER(' + L + '!K2:K' + s + 'fCls' + s + 'fElv)' + s +
+        'IF((G<>"")*(G<>CHAR(8212))' + s +
           '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&G' +
-          '&IF(H<>""' + s + '" en "&H' + s + '"")' +
-          '&IF(I<>""' + s + 'CHAR(10)&"et \u00e0 "&I' +
-            '&IF(J<>""' + s + '" en "&J' + s + '"")' +
+          '&IF((H<>"")*(H<>CHAR(8212))' + s + '" en "&H' + s + '"")' +
+          '&"."' +
+          '&IF((I<>"")*(I<>CHAR(8212))' + s +
+            'CHAR(10)&"Et \u00e0 "&I' +
+            '&IF((J<>"")*(J<>CHAR(8212))' + s + '" en "&J' + s + '"")' +
+            '&"."' +
           s + '"")' +
-        s + '"")' +
+          '&IF((K<>"")*(K<>CHAR(8212))' + s + 'CHAR(10)&K' + s + '"")' +
+        s + '""' +
+        ')' +
       ')' + s + '"")'
     );
 
-    // Wrap sur les colonnes a texte long (spill entier couvert par 20 lignes)
-    sh.getRange(2, 3, 20, 1).setWrap(true); // Engagements
-    sh.getRange(2, 4, 20, 1).setWrap(true); // Engagement libre
-    sh.getRange(2, 5, 20, 1).setWrap(true); // Appreciation PP
+    // Wrap sur la colonne engagement (spill couvert par 30 lignes)
+    sh.getRange(2, 3, 30, 1).setWrap(true);
 
     try { sh.showSheet(); } catch (e0) {}
   }
 
-  // COPIER_COLLER_GLOBAL (7 colonnes)
+  // COPIER_COLLER_GLOBAL (9 colonnes) — rempli par publierTerminalDepuisLive_
   var g = getOrCreateSheet_(terminal, CFG.GLOBAL);
-  var gHeaders = ["Classe","\u00c9l\u00e8ve","Appr\u00e9ciation PP","Synth\u00e8se engagements","Orientation","Points PP","Synth\u00e8se compl\u00e8te"];
-  var gWidths  = [90, 220, 360, 480, 240, 360, 800];
+  var gHeaders = [
+    "Classe", "\u00c9l\u00e8ve", "Bin\u00f4me",
+    "Engagement (copier-coller)",
+    "Appr\u00e9ciation PP", "Orientation", "Compl\u00e9ment orientation",
+    "Points PP", "Synth\u00e8se compl\u00e8te"
+  ];
+  var gWidths = [90, 220, 180, 480, 360, 240, 240, 200, 800];
   g.clear();
   g.getRange(1, 1, 1, gHeaders.length).setValues([gHeaders])
     .setFontWeight("bold").setBackground("#37474F").setFontColor("white");
@@ -912,16 +909,17 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
     var eleve = nettoyerCellule_(r[I.ELEVE]);
     if (!cls || !eleve) continue;
 
+    var binome   = nettoyerCellule_(r[I.BINOME]);
     var oriTxt   = nettoyerCellule_(r[I.ORI]);
     var complTxt = nettoyerCellule_(r[I.COMPL_ORI]);
-    if (complTxt) oriTxt = oriTxt ? (oriTxt + " " + complTxt) : complTxt;
-
     var ppTxt    = nettoyerCellule_(r[I.POINTS_PP]);
     var apprTxt  = nettoyerCellule_(r[I.APPRE_PP]);
+    var engCol   = construireColonneEngagements_(r);
     var engSent  = construirePhrasEngagement_(r);
-    var fullSent = construirePhraseComplete_(r, engSent, oriTxt, ppTxt, apprTxt);
+    var oriFull  = oriTxt ? (complTxt ? oriTxt + " " + complTxt : oriTxt) : complTxt;
+    var fullSent = construirePhraseComplete_(r, engSent, oriFull, ppTxt, apprTxt);
 
-    copyRows.push([cls, eleve, apprTxt, engSent, oriTxt, ppTxt, fullSent]);
+    copyRows.push([cls, eleve, binome, engCol, apprTxt, oriTxt, complTxt, ppTxt, fullSent]);
   }
 
   copyRows.sort(function(a, b) {
@@ -929,8 +927,8 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
   });
   var g    = getOrCreateSheet_(terminal, CFG.GLOBAL);
   var gMax = Math.max(g.getMaxRows() - 1, 1);
-  g.getRange(2, 1, gMax, 7).clearContent();
-  if (copyRows.length) g.getRange(2, 1, copyRows.length, 7).setValues(copyRows);
+  g.getRange(2, 1, gMax, 9).clearContent();
+  if (copyRows.length) g.getRange(2, 1, copyRows.length, 9).setValues(copyRows);
   try { g.showSheet(); } catch (e1) {}
 }
 
@@ -1271,7 +1269,7 @@ function construireColonneEngagements_(row) {
   if (!p1 && !p2 && !libre) return "";
   var lines = [];
   if (p1) lines.push("L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 " + terminerParPoint_(p1));
-  if (p2) lines.push("et \u00e0 " + terminerParPoint_(p2));
+  if (p2) lines.push("Et \u00e0 " + terminerParPoint_(p2));
   if (libre) lines.push(libre);
   return lines.join("\n");
 }
@@ -1497,60 +1495,60 @@ function remplirListes_(li) {
   var eng = [
     "Engagements", DASH,
     "--- TRAVAIL À LA MAISON ---",
-    "relire ma leçon 10 min la veille du cours",
-    "apprendre ma leçon le soir même",
-    "faire mes devoirs dès le jour où ils sont donnés",
-    "commencer mon travail sans attendre le dernier moment",
+    "relire sa leçon 10 min la veille du cours",
+    "apprendre sa leçon le soir même",
+    "faire ses devoirs dès le jour où ils sont donnés",
+    "commencer son travail sans attendre le dernier moment",
     "refaire un exercice déjà corrigé",
     "apprendre un peu chaque jour au lieu de tout faire d'un coup",
-    "laisser mon téléphone dans une autre pièce pendant mes devoirs",
+    "laisser son téléphone dans une autre pièce pendant ses devoirs",
     "réciter les définitions importantes à voix haute",
     "--- ORGANISATION ---",
-    "noter précisément tous mes devoirs dans mon agenda",
-    "vérifier mon sac la veille au soir",
-    "avoir mon matériel complet à chaque cours",
-    "sortir mes affaires dès mon arrivée en classe",
-    "ouvrir mon cahier dès la sonnerie",
-    "apporter systématiquement mon matériel (stylos, cahier, règle)",
-    "ranger mes feuilles volantes dans mon classeur chaque soir",
+    "noter précisément tous ses devoirs dans son agenda",
+    "vérifier son sac la veille au soir",
+    "avoir son matériel complet à chaque cours",
+    "sortir ses affaires dès son arrivée en classe",
+    "ouvrir son cahier dès la sonnerie",
+    "apporter systématiquement son matériel (stylos, cahier, règle)",
+    "ranger ses feuilles volantes dans son classeur chaque soir",
     "--- ATTENTION ET COMPORTEMENT ---",
     "écouter sans parler pendant les explications",
     "rester silencieux(se) pendant la lecture des consignes",
-    "me remettre au travail dès que le prof le demande",
+    "se remettre au travail dès que le prof le demande",
     "rester calme et assis(e) pendant toute l'heure",
-    "laisser mes voisins travailler sans les déranger",
+    "laisser ses voisins travailler sans les déranger",
     "respecter le silence pendant le travail individuel",
-    "garder mon matériel rangé quand ce n'est pas utile",
+    "garder son matériel rangé quand ce n'est pas utile",
     "regarder le tableau ou le prof quand il parle",
     "--- PARTICIPATION EN CLASSE ---",
     "lever la main au moins une fois par cours",
     "répondre à une question au moins une fois par semaine",
-    "proposer une réponse même si je n'ai pas de certitude",
+    "proposer une réponse même sans certitude",
     "lire à voix haute un texte ou une consigne",
     "participer activement aux travaux de groupe",
     "écouter les réponses des autres sans les couper",
     "passer au tableau si on a besoin d'un volontaire",
     "--- COMPRÉHENSION ET MÉTHODE ---",
-    "poser une question dès que je suis perdu(e)",
+    "poser une question dès qu'il/elle est perdu(e)",
     "demander une explication avant la fin de l'heure",
     "relire la consigne deux fois avant de répondre",
-    "analyser mes erreurs après un rendu de copie",
+    "analyser ses erreurs après un rendu de copie",
     "essayer un exercice difficile au lieu de rendre page blanche",
-    "utiliser mon brouillon pour tester mes idées",
-    "vérifier que j'ai bien répondu à toutes les questions",
+    "utiliser son brouillon pour tester ses idées",
+    "vérifier qu'il/elle a bien répondu à toutes les questions",
     "--- SOIN ET PRÉSENTATION ---",
     "copier l'intégralité du cours proprement",
     "écrire de façon lisible pour être relu(e) facilement",
     "dater chaque nouvelle séance",
     "souligner les titres à la règle",
     "utiliser un effaceur ou du blanc pour corriger proprement",
-    "me relire 2 minutes pour corriger les fautes d'orthographe",
-    "prendre soin de mon cahier (pas de coins cornés)",
+    "se relire 2 minutes pour corriger les fautes d'orthographe",
+    "prendre soin de son cahier (pas de coins cornés)",
     "--- ÉVALUATIONS ET ABSENCES ---",
-    "préparer mes contrôles au moins 2 jours avant",
-    "m'auto-interroger sur le cours pour réviser",
+    "préparer ses contrôles au moins 2 jours avant",
+    "s'auto-interroger sur le cours pour réviser",
     "apprendre les mots-clés par cœur",
-    "corriger sérieusement mes évaluations",
+    "corriger sérieusement ses évaluations",
     "rattraper le cours manqué avant de revenir en classe",
     "demander les documents distribués après une absence",
     "être prêt(e) à travailler dès le début de l'heure"

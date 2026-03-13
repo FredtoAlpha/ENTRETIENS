@@ -80,9 +80,6 @@ function onOpen() {
     .addItem("Actualiser terminal prof", "actualiserTerminalProf")
     .addItem("Synchroniser DATA_SECOURS", "synchroniserSecoursTerminal")
     .addSeparator()
-    .addItem("PATCH \u2014 Corriger engagements (anciennes fiches)", "patcherSynthesesAncienneLayout")
-    .addItem("DIAG \u2014 Lire ENG1/ENG2 dans les SYNTHESES", "diagnosticEngagements")
-    .addSeparator()
     .addItem("R\u00e9sum\u00e9", "afficherResume")
     .addItem("Ouvrir dossier", "ouvrirDossierBase")
     .addToUi();

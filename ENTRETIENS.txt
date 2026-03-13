@@ -848,13 +848,13 @@ function preparerOngletsClasse_(terminal, classes, s) {
     // Format : "L'eleve s'engage a [G1][ en H1].\nEt a [I1][ en J1].\n[K1]"
     sh.getRange("C2").setFormula(
       '=IFERROR(LET(' +
-        'c1' + s + L + '!C2:C="' + cls + '"' + s +
-        'c2' + s + L + '!B2:B<>""' + s +
-        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'c1' + s + 'c2)' + s +
-        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'c1' + s + 'c2)' + s +
-        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'c1' + s + 'c2)' + s +
-        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'c1' + s + 'c2)' + s +
-        'K' + s + 'FILTER(' + L + '!K2:K' + s + 'c1' + s + 'c2)' + s +
+        'fCls' + s + L + '!C2:C="' + cls + '"' + s +
+        'fElv' + s + L + '!B2:B<>""' + s +
+        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'fCls' + s + 'fElv)' + s +
+        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'fCls' + s + 'fElv)' + s +
+        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'fCls' + s + 'fElv)' + s +
+        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'fCls' + s + 'fElv)' + s +
+        'K' + s + 'FILTER(' + L + '!K2:K' + s + 'fCls' + s + 'fElv)' + s +
         'IF((G<>"")*(G<>CHAR(8212))' + s +
           '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&G' +
           '&IF((H<>"")*(H<>CHAR(8212))' + s + '" en "&H' + s + '"")' +

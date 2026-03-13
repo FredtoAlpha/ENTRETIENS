@@ -79,6 +79,8 @@ function onOpen() {
     .addItem("Actualiser terminal prof", "actualiserTerminalProf")
     .addItem("Synchroniser DATA_SECOURS", "synchroniserSecoursTerminal")
     .addSeparator()
+    .addItem("PATCH \u2014 Corriger engagements (anciennes fiches)", "patcherSynthesesAncienneLayout")
+    .addSeparator()
     .addItem("R\u00e9sum\u00e9", "afficherResume")
     .addItem("Ouvrir dossier", "ouvrirDossierBase")
     .addToUi();
@@ -932,7 +934,101 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
 }
 
 // =============================================================================
-// BLOC 7 : SECOURS
+// BLOC 7 : PATCH ancienne mise en page
+// =============================================================================
+
+// Avant le commit "Réordonner sections maquette", les fiches élèves avaient :
+//   ENG1=B9, MAT1=B10, ENG2=B12, MAT2=B13, ENG_LIBRE=B15 (fusionné B15:B18)
+//   ORI=B21, COMPL_ORI=B23, POINTS_PP=B27, APPRE_PP=B31 (fusionné B31:B33)
+// Après ce commit, les adresses deviennent :
+//   ENG1=B14, MAT1=B15, ENG2=B17, MAT2=B18, ENG_LIBRE=B20,
+//   ORI=B26, COMPL_ORI=B28, POINTS_PP=B32, APPRE_PP=B9
+// Si les fiches ont été créées/envoyées AVANT ce réordonnancement, la mise à jour
+// de SYNTHESES via "Mettre à jour liens/jurys" pointe sur de mauvaises cellules
+// → ENG1/ENG2 vides. Ce patch corrige les formules SYNTHESES sans toucher aux données.
+
+function patcherSynthesesAncienneLayout() {
+  var ui = SpreadsheetApp.getUi();
+
+  // Colonnes SYNTHESES à patcher (indices 0-based) et correspondance OLD↔NEW
+  // OLD = adresses dans les fiches créées avant le réordonnancement
+  // NEW = adresses générées par le code actuel (remplirSyntheses_)
+  var PATCH_MAP = [
+    { col: CFG.I.ENG1,      newAddr: "B14", oldAddr: "B9"  },
+    { col: CFG.I.MAT1,      newAddr: "B15", oldAddr: "B10" },
+    { col: CFG.I.ENG2,      newAddr: "B17", oldAddr: "B12" },
+    { col: CFG.I.MAT2,      newAddr: "B18", oldAddr: "B13" },
+    { col: CFG.I.ENG_LIBRE, newAddr: "B20", oldAddr: "B15" },
+    { col: CFG.I.ORI,       newAddr: "B26", oldAddr: "B21" },
+    { col: CFG.I.COMPL_ORI, newAddr: "B28", oldAddr: "B23" },
+    { col: CFG.I.POINTS_PP, newAddr: "B32", oldAddr: "B27" },
+    { col: CFG.I.APPRE_PP,  newAddr: "B9",  oldAddr: "B31" }
+  ];
+
+  var master = SpreadsheetApp.getActiveSpreadsheet();
+  var jurysSh = master.getSheetByName(CFG.JURYS);
+  if (!jurysSh || jurysSh.getLastRow() < 2) {
+    return ui.alert("Onglet JURYS vide ou introuvable.");
+  }
+
+  var rows = jurysSh.getRange(2, 1, jurysSh.getLastRow() - 1, 9).getValues();
+  var patched = 0, skipped = 0, errors = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var fileId = extractId_(String(rows[i][6] || "")) || extractId_(String(rows[i][5] || ""));
+    if (!fileId) { skipped++; continue; }
+
+    try {
+      var ss = SpreadsheetApp.openById(fileId);
+
+      // Détection ancienne mise en page : dans l'ancienne, A9 = "Engagement 1 :"
+      // Dans la nouvelle, A9 = "Appréciation du\nprofesseur principal :"
+      var sheets = ss.getSheets();
+      var isOldLayout = false;
+      for (var si = 0; si < sheets.length; si++) {
+        if (estOngletSysteme_(sheets[si].getName())) continue;
+        var a9 = String(sheets[si].getRange("A9").getValue() || "").trim();
+        if (a9.indexOf("ngagement") !== -1) { isOldLayout = true; break; }
+        if (a9.length > 0) break; // une fiche non-système trouvée, layout détecté
+      }
+
+      if (!isOldLayout) { skipped++; continue; }
+
+      // Correction des formules SYNTHESES
+      var syn = ss.getSheetByName(CFG.SYNTHESES);
+      if (!syn || syn.getLastRow() < 2) { skipped++; continue; }
+
+      var lastDataRow = syn.getLastRow() - 1;
+      var formulas = syn.getRange(2, 1, lastDataRow, CFG.SYNTH_COLS).getFormulas();
+
+      for (var r = 0; r < formulas.length; r++) {
+        for (var p = 0; p < PATCH_MAP.length; p++) {
+          var m = PATCH_MAP[p];
+          if (formulas[r][m.col]) {
+            // Remplace l'adresse nouvelle par l'ancienne dans la formule de cette colonne
+            formulas[r][m.col] = formulas[r][m.col].replace("!" + m.newAddr, "!" + m.oldAddr);
+          }
+        }
+      }
+      syn.getRange(2, 1, lastDataRow, CFG.SYNTH_COLS).setFormulas(formulas);
+      patched++;
+
+    } catch (err) { errors++; }
+  }
+
+  ui.alert(
+    "Patch SYNTHESES \u2014 termin\u00e9",
+    patched + " fichier(s) jury corrig\u00e9(s)\n" +
+    skipped + " ignor\u00e9(s) (d\u00e9j\u00e0 en nouvelle mise en page ou sans ID)\n" +
+    errors + " erreur(s)\n\n" +
+    "Les formules IMPORTRANGE dans le terminal se mettront \u00e0 jour automatiquement.\n" +
+    "Lancez ensuite \u00ab\u00a0Actualiser terminal prof\u00a0\u00bb pour rafra\u00eechir COPIER_COLLER_GLOBAL.",
+    ui.ButtonSet.OK
+  );
+}
+
+// =============================================================================
+// BLOC 8 : SECOURS
 // =============================================================================
 
 function synchroniserSecoursTerminal() {
@@ -1021,7 +1117,7 @@ function lireRowsSecours_(terminal) {
 }
 
 // =============================================================================
-// BLOC 8 : UTILITAIRES
+// BLOC 9 : UTILITAIRES
 // =============================================================================
 
 // --- Helpers locale (separateurs de formules) ---

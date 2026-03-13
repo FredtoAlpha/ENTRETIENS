@@ -183,9 +183,11 @@ function parserDonnees_(data) {
     var rowJoin = cells.join(" ").toUpperCase();
 
     // Detection classe
-    if (rowJoin.match(/4\s*[E\u00c8]\s*[Mm]\s*[Ee]\s*\d/) && !rowJoin.match(/HEURE|SALLE|BIN|DATE|LISTE/)) {
+    if (rowJoin.match(/4\s*[E\u00c8]\s*ME\s*\d/) && !rowJoin.match(/HEURE|SALLE|BIN|DATE|LISTE/)) {
+      // rowJoin est déjà uppercasé : [Mm]/[Ee] inutiles sur le 1er pattern.
+      // Avec /i, [E\u00c8] couvre E/e/È/è — [e\u00e8] redondants sur le 2e.
       for (var c2 = 0; c2 < cells.length; c2++) {
-        var m = cells[c2].match(/4\s*[E\u00c8e\u00e8]\s*[Mm]\s*[Ee]\s*(\d)/i);
+        var m = cells[c2].match(/4\s*[E\u00c8]\s*ME\s*(\d)/i);
         if (m) { currentClass = "4EME" + m[1]; break; }
       }
       awaitingProf2 = false;
@@ -843,29 +845,37 @@ function preparerOngletsClasse_(terminal, classes, s) {
     sh.getRange("B2").setFormula('=IFERROR(FILTER(' + L + '!F2:F' + cond + ')' + s + '"")');
 
     // Col C : phrase d'engagement complete prete a copier-coller sur le bulletin.
-    // LET filtre G(Eng1) H(Mat1) I(Eng2) J(Mat2) K(EngLibre) une seule fois.
+    // LET filtre eng1(G) mat1(H) eng2(I) mat2(J) libre(K) une seule fois.
+    // MAP+LAMBDA+TEXTJOIN itere sur chaque eleve (evite le IF classique qui
+    // ne calcule que la 1re ligne quand les args sont des tableaux).
     // CHAR(8212) = tiret cadratin (valeur par defaut des menus = non rempli).
-    // Format : "L'eleve s'engage a [G1][ en H1].\nEt a [I1][ en J1].\n[K1]"
+    // Format : "L'eleve s'engage a [eng1][ en mat1].\nEt a [eng2][ en mat2].\n[libre]"
     sh.getRange("C2").setFormula(
       '=IFERROR(LET(' +
-        'fCls' + s + L + '!C2:C="' + cls + '"' + s +
-        'fElv' + s + L + '!B2:B<>""' + s +
-        'G' + s + 'FILTER(' + L + '!G2:G' + s + 'fCls' + s + 'fElv)' + s +
-        'H' + s + 'FILTER(' + L + '!H2:H' + s + 'fCls' + s + 'fElv)' + s +
-        'I' + s + 'FILTER(' + L + '!I2:I' + s + 'fCls' + s + 'fElv)' + s +
-        'J' + s + 'FILTER(' + L + '!J2:J' + s + 'fCls' + s + 'fElv)' + s +
-        'K' + s + 'FILTER(' + L + '!K2:K' + s + 'fCls' + s + 'fElv)' + s +
-        'IF((G<>"")*(G<>CHAR(8212))' + s +
-          '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&G' +
-          '&IF((H<>"")*(H<>CHAR(8212))' + s + '" en "&H' + s + '"")' +
-          '&"."' +
-          '&IF((I<>"")*(I<>CHAR(8212))' + s +
-            'CHAR(10)&"Et \u00e0 "&I' +
-            '&IF((J<>"")*(J<>CHAR(8212))' + s + '" en "&J' + s + '"")' +
-            '&"."' +
-          s + '"")' +
-          '&IF((K<>"")*(K<>CHAR(8212))' + s + 'CHAR(10)&K' + s + '"")' +
-        s + '""' +
+        'critCls' + s + L + '!C2:C="' + cls + '"' + s +
+        'critElv' + s + L + '!B2:B<>""' + s +
+        'eng1' + s + 'FILTER(' + L + '!G2:G' + s + 'critCls' + s + 'critElv)' + s +
+        'mat1' + s + 'FILTER(' + L + '!H2:H' + s + 'critCls' + s + 'critElv)' + s +
+        'eng2' + s + 'FILTER(' + L + '!I2:I' + s + 'critCls' + s + 'critElv)' + s +
+        'mat2' + s + 'FILTER(' + L + '!J2:J' + s + 'critCls' + s + 'critElv)' + s +
+        'libre' + s + 'FILTER(' + L + '!K2:K' + s + 'critCls' + s + 'critElv)' + s +
+        'MAP(eng1' + s + 'mat1' + s + 'eng2' + s + 'mat2' + s + 'libre' + s +
+          'LAMBDA(e1' + s + 'm1' + s + 'e2' + s + 'm2' + s + 'lb' + s +
+            'TEXTJOIN(CHAR(10)' + s + 'TRUE' + s +
+              'IF((e1<>"")*(e1<>CHAR(8212))' + s +
+                '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 "&e1' +
+                '&IF((m1<>"")*(m1<>CHAR(8212))' + s + '" en "&m1' + s + '"")' +
+                '&"."' +
+              s + '"")' + s +
+              'IF((e2<>"")*(e2<>CHAR(8212))' + s +
+                'IF((e1<>"")*(e1<>CHAR(8212))' + s + '"Et \u00e0 "' + s + '"L\u2019\u00e9l\u00e8ve s\u2019engage \u00e0 ")' +
+                '&e2' +
+                '&IF((m2<>"")*(m2<>CHAR(8212))' + s + '" en "&m2' + s + '"")' +
+                '&"."' +
+              s + '"")' + s +
+              'IF((lb<>"")*(lb<>CHAR(8212))' + s + 'lb' + s + '"")' +
+            ')' +
+          ')' +
         ')' +
       ')' + s + '"")'
     );
@@ -933,9 +943,15 @@ function publierTerminalDepuisLive_(terminal, classes, forceSecours) {
 }
 
 // =============================================================================
-// BLOC 7 : PATCH ancienne mise en page
+// BLOC 7 : PATCH ancienne mise en page + DIAGNOSTIC
 // =============================================================================
-
+//
+// NOTE : les deux fonctions ci-dessous (patcherSynthesesAncienneLayout et
+// diagnosticEngagements) sont des OUTILS MANUELS de migration et de diagnostic.
+// Elles NE SONT PAS appelées par le workflow automatique (executerWorkflow_inner_,
+// mettreAJourTerminalLive_, publierTerminalDepuisLive_...).
+// Elles restent accessibles depuis le menu "Conseil 4e" pour un usage ponctuel.
+//
 // Avant le commit "Réordonner sections maquette", les fiches élèves avaient :
 //   ENG1=B9, MAT1=B10, ENG2=B12, MAT2=B13, ENG_LIBRE=B15 (fusionné B15:B18)
 //   ORI=B21, COMPL_ORI=B23, POINTS_PP=B27, APPRE_PP=B31 (fusionné B31:B33)
@@ -1227,11 +1243,27 @@ function formaterHoraire_(v) {
 
 // Transforme la formulation à la 1re personne (liste déroulante)
 // en 3e personne pour l'affichage dans le terminal.
-// Problème : \b en JavaScript est ASCII-only (\w = [a-zA-Z0-9_]).
-// Les caractères accentués (é, è, ê, à…) sont hors-\w, donc \b les traite
-// comme des frontières de mot → "même" serait cassé par \bme\b.
-// Solution : utiliser des lookbehind/lookahead qui excluent les lettres Unicode.
-// Compatibilité : V8 (Apps Script depuis 2020) supporte les lookbehind.
+//
+// Pourquoi ne pas utiliser \b (word boundary) ?
+//   \b est ASCII-only (\w = [a-zA-Z0-9_]). Les lettres accentuées (é, è, à…)
+//   étant hors-\w, \b les considère comme des frontières de mot : \bme\b
+//   casserait "même" en le remplaçant partiellement.
+// Solution : lookbehind/lookahead explicites excluant les lettres Unicode.
+//   B  = "(?<![a-z\u00e0-\u00ff])" → pas de lettre (ASCII ou accentuée) AVANT
+//   Bf = "(?![a-z\u00e0-\u00ff])"  → pas de lettre APRÈS
+//   Ces frontières "françaises" sont insensibles à la casse grâce au flag /i.
+// Compatibilité : V8 (Apps Script moteur actuel) supporte les lookbehind ES2018.
+//
+// Substitutions appliquées (ordre important — du plus spécifique au plus général) :
+//   m' → s'      (m'autorise → s'autorise)
+//   me → se      (me concentrer → se concentrer)
+//   ma → sa      (ma méthode → sa méthode)
+//   mon → son    (mon cahier → son cahier)
+//   mes → ses    (mes devoirs → ses devoirs)
+//   je suis → il/elle est
+//   j'ai → il/elle a
+//   j' → il/elle (j'écoute → il/elle écoute)
+//   je → il/elle
 function premierVersTrisiemepersonne_(txt) {
   if (!txt) return txt;
   // Frontière "mot français" : ni lettre ASCII ni lettre accentuée avant/après
@@ -1341,7 +1373,14 @@ function ouvrirDossierBase() {
   );
 }
 
+// Cache en mémoire pour lireInfo_ — évite de relire l'onglet _INFOS_ à chaque appel.
+// Les globales JS sont réinitialisées à chaque exécution Apps Script : aucun risque de
+// données périmées entre deux runs distincts.
+var _infoCache_      = {};  // { "ssId|key": value }
+var _infoCacheReady_ = {};  // { ssId: true } — feuille déjà chargée pour ce classeur
+
 function ecrireInfo_(ss, key, val) {
+  _infoCache_[ss.getId() + "|" + key] = val; // mise à jour anticipée du cache
   var sh = ss.getSheetByName(CFG.INFOS);
   if (!sh) sh = ss.insertSheet(CFG.INFOS);
   var d = sh.getDataRange().getValues();
@@ -1352,11 +1391,20 @@ function ecrireInfo_(ss, key, val) {
 }
 
 function lireInfo_(ss, key) {
-  var sh = ss.getSheetByName(CFG.INFOS);
-  if (!sh) return null;
-  var d = sh.getDataRange().getValues();
-  for (var i = 0; i < d.length; i++) if (d[i][0] === key) return d[i][1];
-  return null;
+  var ssId = ss.getId();
+  // Chargement unique : on lit la feuille une seule fois par classeur par exécution
+  if (!_infoCacheReady_[ssId]) {
+    _infoCacheReady_[ssId] = true;
+    var sh = ss.getSheetByName(CFG.INFOS);
+    if (sh) {
+      var d = sh.getDataRange().getValues();
+      for (var i = 0; i < d.length; i++) {
+        if (d[i][0]) _infoCache_[ssId + "|" + String(d[i][0])] = d[i][1];
+      }
+    }
+  }
+  var v = _infoCache_[ssId + "|" + key];
+  return v !== undefined ? v : null;
 }
 
 function getBaseFolder_() {
